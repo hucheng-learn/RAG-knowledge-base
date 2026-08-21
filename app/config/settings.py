@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     # ---------- 解析预览 ----------
     preview_max_chars: int = 200          # 清洗后文本预览片段最大长度
 
+    # ---------- 文本分块 ----------
+    chunk_size: int = 500                 # 分块大小（字符数）
+    chunk_overlap: int = 50               # 相邻块重叠量（字符数）
+
+    # ---------- MySQL ----------
+    mysql_host: str = "127.0.0.1"
+    mysql_port: int = 3306
+    mysql_user: str = "root"
+    mysql_password: str = ""
+    mysql_db: str = "rag_knowledge"
+
     # ---------- 计算属性：业务层直接使用语义化值 ----------
 
     @property

@@ -31,3 +31,4 @@ class UploadResponse(BaseModel):
     file_size: int = Field(..., description="文件大小（字节）")
     preview: Optional[str] = Field(None, description="清洗后文本预览片段（解析模块填充）")
     char_count: Optional[int] = Field(None, description="清洗后总字符数（解析模块填充）")
+    chunk_count: Optional[int] = Field(None, description="分块数量（第二阶段起填充）")

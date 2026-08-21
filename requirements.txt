@@ -9,3 +9,7 @@ python-multipart>=0.0.9        # FastAPI 文件上传（UploadFile）依赖
 
 # ============ 文档解析（第一阶段） ============
 pdfplumber>=0.11.0             # PDF 逐页文本提取（替代已维护模式的 PyPDF2）
+
+# ============ MySQL 元数据存储（第二阶段） ============
+sqlalchemy>=2.0.30             # ORM
+pymysql>=1.1.0                 # MySQL 驱动（纯 Python，无需编译）

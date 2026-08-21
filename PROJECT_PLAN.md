@@ -176,7 +176,7 @@ project_root/
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 第一阶段 | 项目骨架 + 文件上传解析模块 | ✅ 已完成 |
-| 第二阶段 | 文本分块 + MySQL 元数据存储 | ⬜ 未开始 |
+| 第二阶段 | 文本分块 + MySQL 元数据存储 | ✅ 已完成 |
 | 第三阶段 | Embedding 接入 + Milvus 向量入库 | ⬜ 未开始 |
 | 第四阶段 | 知识库管理接口（含级联删除） | ⬜ 未开始 |
 | 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源） | ⬜ 未开始 |
@@ -215,11 +215,16 @@ project_root/
 - [x] 本模块设计思路讲解（见阶段讲解输出）
 - [x] 下一阶段改造扩展点（见阶段讲解输出）
 
-### 8.2 第二阶段：文本分块 + MySQL 元数据存储（预留）
+### 8.2 第二阶段：文本分块 + MySQL 元数据存储（✅ 2026-08-21）
 
-- 固定 `chunk_size` + `overlap` 重叠滑动窗口，分块参数支持配置。
-- 讲解清楚 chunk 大小、overlap 各自作用与调参思路。
-- MySQL 表结构：知识库 id、文档 id、文档名称、块编号、块原始文本、来源页码、Milvus 向量 id、创建时间。
+- ✅ 固定 `chunk_size` + `overlap` 重叠滑动窗口，参数走 .env 配置（默认 500/50）。
+- ✅ 讲解 chunk 大小、overlap 各自作用与调参思路（见本阶段讲解输出）。
+- ✅ MySQL 三表结构落地：`knowledge_bases` / `documents` / `chunks`（SQLAlchemy 2.x ORM，
+  启动时自动建库建表；`chunks.vector_id` 预留为 NULL，第三阶段写入 Milvus 向量 id）。
+- ✅ 上传全链路接入：上传 → 解析 → 清洗 → 分块（按页携带页码）→ 元数据+分块单事务落库；
+  响应新增 `chunk_count` 字段。
+- ✅ 连接池配置：pool_pre_ping / pool_recycle / max_overflow；MySQL 不可用时服务降级启动。
+- ⚠️ 待办（后续阶段）：文档/知识库管理接口（第四阶段）；Alembic 迁移替代 create_all（第七阶段）。
 
 ### 8.3 第三阶段：Embedding + Milvus 向量入库（预留）
 
@@ -267,5 +272,6 @@ project_root/
 | 2026-08-20 | v0.4 | 任务 4 上传接口完成：新增 `utils/file_utils.py`、`models/schemas.py`（泛型信封 `ApiResponse[T]`）、`service/document_service.py`、`routers/document.py` | 上传校验 + 落盘 + 响应契约；解析与 preview/char_count 留待任务 5/6 填充 |
 | 2026-08-20 | v0.5 | 任务 5+6 完成，第一阶段收官：DocumentParser 抽象 + txt/pdf 解析器 + 扫描版检测 + clean_text 可配置清洗 + 上传全链路（preview/char_count 填充）；解析失败自动清理落盘文件；新增 `requirements-dev.txt`（fpdf2 测试工具） | 完成第一阶段全部任务；修复"解析失败残留文件"问题；清洗/预览配置入 .env |
 | 2026-08-20 | v0.6 | 新增版本管理约定（开发规则第 7 条）：阶段完成推 dev → 确认后合 main 再推远程；远程 dev 分支已创建 | 用户指定分支工作流 |
+| 2026-08-21 | v0.7 | 第二阶段完成：chunk_service（滑动窗口 + 按页分块 + 边界校验）+ MySQL ORM 三表 + 上传全链路落库（单事务）+ 响应新增 chunk_count；修复建库 URL 与引擎缺库名两个 bug | 完成第二阶段；真实 MySQL 全链路验证通过 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

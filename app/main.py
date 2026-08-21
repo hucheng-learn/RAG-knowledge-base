@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request
 from starlette.responses import Response
 
 from app.config.settings import get_settings
+from app.models.orm import init_db
 from app.routers import document
 from app.utils.exceptions import register_exception_handlers
 from app.utils.logger import get_logger, setup_logging
@@ -35,6 +36,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期钩子：启动时初始化，关闭时清理。"""
     # 启动：确保上传目录、日志目录存在（目录不存在时文件写入会报错）
     settings.ensure_dirs()
+    # 初始化 MySQL：建库 + 建表。MySQL 不可用时降级启动（打 ERROR 日志，
+    # 上传接口会以 500 明确报错），不让单个依赖故障拖垮整个服务
+    try:
+        init_db()
+    except Exception:
+        logger.exception("MySQL 初始化失败，上传接口暂不可用")
     logger.info("应用启动完成: %s v%s", settings.app_name, settings.app_version)
     yield
     # 关闭：后续如有数据库连接池、向量库客户端，在此处统一释放
