@@ -74,10 +74,11 @@ class Settings(BaseSettings):
     mysql_db: str = "rag_knowledge"
 
     # ---------- Embedding ----------
-    embedding_model: str = "BAAI/bge-m3"     # 本地模型（sentence-transformers）
+    # 模型标识：本地路径或 HuggingFace 仓库名（如 "BAAI/bge-m3"），实际值在 .env 配置
+    embedding_model: str = "BAAI/bge-m3"
     embedding_dim: int = 1024                # 向量维度（必须与模型一致，且与 collection 绑定）
     embedding_device: str = "cpu"            # 推理设备 cpu/cuda
-    hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像（国内访问，可覆盖）
+    hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像（本地加载模型时不会触发下载）
 
     # ---------- Milvus ----------
     milvus_host: str = "127.0.0.1"

@@ -208,4 +208,42 @@ A：开发阶段表结构快速迭代，create_all 够用且幂等；生产/多�
 
 ---
 
+## 9. Embedding 与 Milvus 向量库（第三阶段）
+
+### 9.1 EmbeddingService 抽象（面试点）
+
+- 抽象 `embed_texts / embed_query / dim`，换模型（bge-large、远端 API）只换实现不动上层；
+- `embed_query` 单独抽象：旧版 bge-large/small 查询需加指令前缀「为这个句子生成表示以用于检索相关文章」，bge-m3 不需要——不同模型查询与文档的向量空间要一致，接口分开才能各自实现；
+- `normalize_embeddings=True`（L2 归一化）+ Milvus COSINE 度量匹配：归一化后内积 ≡ 余弦，检索更稳；
+- **懒加载 + 单例**：2GB 权重首次调用才加载（10s 级），进程内只加载一次（lru_cache）；
+- 本地模型路径可配（`EMBEDDING_MODEL=D:\...\bge-m3`），离线可用，不依赖 HF 联网。
+
+### 9.2 Milvus collection 设计（面试点）
+
+- **主键 id = MySQL chunks.id（INT64）**：MySQL↔Milvus 一一对应，便于对账与溯源；
+- **Milvus 只存向量 + 过滤字段**（doc_id/chunk_index/page_number），chunk 原文在 MySQL——元数据单一来源，避免双写不一致；检索命中后凭 id 回查 MySQL 取原文与页码（第五阶段溯源）；
+- **COSINE 度量 + HNSW 索引**：语义检索标准组合，HNSW 是图索引，`M`（每个节点连接数，越大召回越高越耗内存）与 `efConstruction`（建图时候选集大小）可调；
+- 过滤字段支持文档级检索/删除（`doc_id in [...]` 表达式），不用 partition 简化实现；
+- **查询/检索前必须 `load_collection`**：Milvus 的 collection 需要加载进内存才能 search/query（建索引后也要 load），这是 Milvus 与普通数据库最大的使用差异，容易漏。
+
+### 9.3 双写一致性落地（对应 6.5）
+
+```
+MySQL 落库（拿 chunk.id）→ 批量向量化 → 写 Milvus（主键=chunk.id）→ 回填 MySQL.vector_id
+失败任一环 → _compensate：删 Milvus 向量 → 删 MySQL chunks → 删 documents → 删文件
+```
+
+- **先 MySQL 后 Milvus**：MySQL 是事实源，先落库拿到权威 id；
+- **回填 vector_id**：标记该块已向量化，也是「两边一致」的可查询证据；
+- **注意**：SQLAlchemy `Query.delete()` 是批量 SQL，**不触发 ORM 关系级联**——删除文档必须**先删子表 chunks 再删 documents**（或给外键配 `ON DELETE CASCADE`），否则产生孤儿数据。
+
+### 9.4 环境与工程要点
+
+- **GPU 推理**：`EMBEDDING_DEVICE=cuda`，查询向量化 0.37s（RTX 5080），CPU 会慢一个数量级；
+- **pymilvus 3.x API 差异**：`index_params` 从 dict 改为 `IndexParams` 对象（`pymilvus.milvus_client.index`），`search` 增加 `search_params` 显式参数——升级大版本时这类破坏性变更要靠真实验证暴露；
+- 国内环境：HF 本体被墙走 `hf-mirror.com` 直连；新版 huggingface_hub 默认 Xet 存储后端（`cas-server.xethub.hf.co`）也被墙，需 `HF_HUB_DISABLE_XET=1` 强制走普通 HTTP。
+
+---
+
 > 更新记录：v0.2 2026-08-21 覆盖第一、二阶段技术方案与面试要点；移除运维/环境层面的琐碎问题记录（本文档只沉淀有讲解价值的代码设计与面试要点）。
+> v0.3 2026-08-27 新增第三阶段：Embedding 抽象、Milvus collection 设计、双写一致性落地、环境工程要点。

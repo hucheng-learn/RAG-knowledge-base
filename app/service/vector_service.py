@@ -18,8 +18,34 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# pymilvus >= 3.0 把 index_params 从 dict 改成了 IndexParams 对象，
+# 用 try 导入兼容 2.x / 3.x（3.0 起 IndexParams 在子模块）
+try:
+    from pymilvus.milvus_client.index import IndexParams as _IndexParams
+except ImportError:  # pragma: no cover
+    _IndexParams = None
+
 _client = None
 _collection_ready = False
+
+
+def _build_index_params():
+    """构造 index_params：pymilvus 3.x 返回 IndexParams 对象，2.x 返回 dict。"""
+    settings = get_settings()
+    index_kwargs = {
+        "metric_type": settings.milvus_metric,
+        "params": {"M": 16, "efConstruction": 200},
+    }
+    if _IndexParams is not None:
+        ip = _IndexParams()
+        ip.add_index(
+            field_name="vector",
+            index_type=settings.milvus_index_type,
+            index_name="vector_idx",
+            **index_kwargs,
+        )
+        return ip
+    return {"index_type": settings.milvus_index_type, **index_kwargs}
 
 
 def get_client() -> MilvusClient:
@@ -49,17 +75,16 @@ def ensure_collection() -> None:
             collection_name=settings.milvus_collection,
             schema=schema,
             metric_type=settings.milvus_metric,
-            index_params={
-                "index_type": settings.milvus_index_type,
-                "metric_type": settings.milvus_metric,
-                "params": {"M": 16, "efConstruction": 200},
-            },
+            index_params=_build_index_params(),
         )
         logger.info(
             "Milvus collection 已创建: %s dim=%d metric=%s index=%s",
             settings.milvus_collection, settings.embedding_dim,
             settings.milvus_metric, settings.milvus_index_type,
         )
+    # 集合存在但可能未加载：Milvus 的 search/query 必须在 load 之后，
+    # 这里统一幂等加载（重复 load 是安全的）
+    client.load_collection(settings.milvus_collection)
     _collection_ready = True
 
 
@@ -100,6 +125,8 @@ def search(query_vector: list, top_k: int, doc_ids: list = None) -> list:
         limit=top_k,
         filter=expr,
         output_fields=["doc_id", "chunk_index", "page_number"],
+        # pymilvus 3.x 把 search 参数显式化；2.x 通过 kwargs 透传，兼容
+        search_params={"metric_type": settings.milvus_metric, "params": {"ef": 64}},
     )
     results = []
     for hit in hits[0]:

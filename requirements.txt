@@ -15,5 +15,8 @@ sqlalchemy>=2.0.30             # ORM
 pymysql>=1.1.0                 # MySQL 驱动（纯 Python，无需编译）
 
 # ============ Embedding / 向量库（第三阶段） ============
-sentence-transformers>=3.0.0   # 本地 bge-m3 embedding 模型（含 torch）
+# 说明：sentence-transformers 会自动拉取 CPU 版 torch；
+# 若需 GPU 加速，请先用官方命令按 CUDA 版本装 GPU torch（或直接用已装好 GPU torch 的 conda环境，如本项目实际的 rag_kb 环境），
+# 再执行 pip install，避免被 CPU 版覆盖。
+sentence-transformers>=3.0.0   # 本地 bge-m3 embedding 模型（依赖 torch）
 pymilvus>=2.4.0                # Milvus 向量库 Python 客户端

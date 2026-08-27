@@ -200,6 +200,9 @@ def _compensate(doc_id: int) -> None:
         logger.exception("补偿删除 Milvus 向量失败: doc_id=%s", doc_id)
     session = get_session()
     try:
+        # 先删 chunks 再删 documents：Query.delete() 是批量 SQL，
+        # 不触发 ORM 关系级联，必须先删子表，否则产生孤儿 chunk
+        session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
         session.query(Document).filter(Document.id == doc_id).delete()
         session.commit()
     except Exception:

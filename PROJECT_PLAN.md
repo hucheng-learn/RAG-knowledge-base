@@ -1,8 +1,8 @@
 # 企业知识库 RAG 后端系统 — 开发计划与进度跟踪
 
-> 本文件是项目的**唯一事实来源（source of truth）**：开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
+> 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v0.1 ｜ 创建日期：2026-08-20
+> 当前版本：v1.0 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-27
 
 ---
 
@@ -21,11 +21,11 @@
 | 层次 | 选型 | 说明 |
 |---|---|---|
 | Web 框架 | Python + FastAPI | 异步、Pydantic 强校验、自带 OpenAPI 文档 |
-| PDF 解析 | **pdfplumber**（修正项，见 6.1） | 原方案 PyPDF2 已维护模式，解析质量差 |
+| PDF 解析 | **pdfplumber** |
 | 文本解析 | 内置 open() 读取 | txt 直接读取 |
 | 向量库 | Milvus | 只存 embedding 向量，与 MySQL 元数据一一关联 |
 | 元数据库 | MySQL | 知识库、文档、chunk 元数据 |
-| Embedding | **待定（独立抽象，见 6.2）** | 首选本地 bge-m3 / bge-large-zh，deepseek-harness 不提供 embedding |
+| Embedding | **bge-m3** | 本地 sentence-transformers 加载，1024 维；|
 | 大模型 | 本地 deepseek-harness 服务 | 对话/生成，SSE 流式输出 |
 | ORM | SQLAlchemy 2.x | 配合 MySQL |
 | 配置 | pydantic-settings + .env | 禁止硬编码 |
@@ -105,9 +105,14 @@ project_root/
 │       ├── response.py            # 统一返回体 {code, msg, data}
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
+├── deploy/
+│   └── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone，第三阶段）
 ├── uploads/                       # 上传文件存储目录（.gitignore）
 ├── logs/                          # 日志目录（.gitignore）
+├── PROJECT_PLAN.md                # 本计划文档
+├── TECH_DESIGN.md                 # 技术设计与面试要点文档
 ├── requirements.txt
+├── requirements-dev.txt           # 测试工具依赖（fpdf2 等）
 ├── .env.example                   # 环境变量模板（提交仓库）；.env 为本地真实配置（gitignore）
 ├── .gitignore
 └── README.md
@@ -122,12 +127,11 @@ project_root/
 - 通过 `DocumentParser` 抽象接口屏蔽解析器差异，后续扩展 OCR 解析器（扫描版）时上层业务零改动。
 - **扫描版 PDF 策略（第一阶段）**：逐页提取后文本为空或极少 → 抛业务异常「暂不支持扫描版 PDF」。该策略为临时方案，后续可用 OCR（如 PaddleOCR）扩展，接口已预留扩展位。
 
-### 6.2 Embedding：独立抽象，模型待定（修正项）
+### 6.2 Embedding：独立抽象，模型已定 bge-m3
 
-- **deepseek-harness 是对话/生成服务，不提供 embedding 接口**，文档向量化和问题向量化必须单独选模型。
-- 首选：本地部署 bge-m3 / bge-large-zh-v1.5（sentence-transformers，中文效果好）；备选：OpenAI 兼容 embedding 服务。
+- **本地部署 bge-m3（1024 维，sentence-transformers 加载）**。理由：多语言 + 8K 长文本、中文检索效果强、与 16G 独显（cuda 推理）匹配；备选：bge-large-zh-v1.5（更轻）、OpenAI 兼容 embedding 服务。
 - 架构上必须抽象 `EmbeddingService` 接口，实现可切换。
-- ⚠️ Milvus collection 的 **dim 维度与 embedding 模型强绑定**：第一阶段定下模型/维度后，后续换模型需重建 collection。此决策在第三阶段前必须敲定。
+- ⚠️ Milvus collection 的 **dim 维度与 embedding 模型强绑定**：定下 bge-m3/1024 后，后续换模型需重建 collection。
 
 ### 6.3 MySQL + Milvus 双写一致性（工业级关键考点）
 
@@ -176,7 +180,7 @@ project_root/
 |---|---|---|
 | 第一阶段 | 项目骨架 + 文件上传解析模块 | ✅ 已完成 |
 | 第二阶段 | 文本分块 + MySQL 元数据存储 | ✅ 已完成 |
-| 第三阶段 | Embedding 接入 + Milvus 向量入库 | ⬜ 未开始 |
+| 第三阶段 | Embedding 接入 + Milvus 向量入库 | ✅ 已完成 |
 | 第四阶段 | 知识库管理接口（含级联删除） | ⬜ 未开始 |
 | 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源） | ⬜ 未开始 |
 | 第六阶段 | 工程稳定性优化 | ⬜ 未开始 |
@@ -225,10 +229,11 @@ project_root/
 - ✅ 连接池配置：pool_pre_ping / pool_recycle / max_overflow；MySQL 不可用时服务降级启动。
 - ⚠️ 待办（后续阶段）：文档/知识库管理接口（第四阶段）；Alembic 迁移替代 create_all（第七阶段）。
 
-### 8.3 第三阶段：Embedding + Milvus 向量入库（预留）
+### 8.3 第三阶段：Embedding + Milvus 向量入库（✅ 已完成）
 
-- 敲定 embedding 模型与维度（见 6.2），创建 Milvus collection。
-- 文档入库：分块 → 向量化 → 双写 MySQL + Milvus（见 6.3）。
+- ✅ 敲定 embedding 模型 bge-m3（1024 维，见 6.2），创建 Milvus collection。
+- ✅ 文档入库：分块 → 向量化 → 双写 MySQL + Milvus（见 6.3），失败补偿删除。
+- ✅ 本地加载 bge-m3 权重（`EMBEDDING_MODEL` 指向本地路径），`EMBEDDING_DEVICE=cuda` GPU 推理。
 
 ### 8.4 第四阶段：知识库管理接口（预留）
 
@@ -274,5 +279,7 @@ project_root/
 | 2026-08-21 | v0.7 | 第二阶段完成：chunk_service（滑动窗口 + 按页分块 + 边界校验）+ MySQL ORM 三表 + 上传全链路落库（单事务）+ 响应新增 chunk_count；修复建库 URL 与引擎缺库名两个 bug | 完成第二阶段；真实 MySQL 全链路验证通过 |
 | 2026-08-21 | v0.8 | 新增 `TECH_DESIGN.md`：技术方案与面试要点文档（分层/上传/解析/清洗/分块原理/MySQL 表设计/连接池/事务/双写一致性/面试 Q&A/踩坑记录） | 沉淀技术方案供面试复习 |
 | 2026-08-21 | v0.9 | 工作流调整：合 main + 推远程由用户自行执行（AI 只推 dev）；`TECH_DESIGN.md` 移除运维/环境层面琐碎问题记录 | 用户指定；文档只保留有讲解价值的代码设计与面试要点 |
+| 2026-08-27 | v1.0 | 第三阶段完成：bge-m3（GPU）+ Milvus docker-compose 部署 + Embedding 抽象 + vector_service + 入库全链路（双写一致 + 补偿）；修复 pymilvus 3.0 API 兼容、load_collection 缺失、补偿删除孤儿 chunk 三个真实问题；文档头部增加版本/更新时间，目录结构同步 | 完成第三阶段；真实 Milvus + GPU 全链路验证通过 |
+| 2026-08-27 | v0.10 | 第三阶段完成：bge-m3（1024 维）+ Milvus 向量入库全链路；环境切 conda `rag_kb`（GPU torch）并本地加载 bge-m3 权重 | 国内下载 GPU torch / bge-m3 权重过慢，改为手动下载 + 本地路径加载 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

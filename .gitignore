@@ -12,6 +12,9 @@ venv/
 uploads/
 logs/
 
+# Milvus 容器运行时持久化数据（docker compose 启动后生成，不入库）
+deploy/volumes/
+
 # IDE / 系统
 .idea/
 .vscode/

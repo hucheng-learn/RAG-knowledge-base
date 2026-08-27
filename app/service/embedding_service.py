@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 
 from app.config.settings import get_settings
+from app.utils.exceptions import SystemException
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,19 +47,37 @@ class BgeEmbeddingService(EmbeddingService):
     def __init__(self) -> None:
         # 延迟 import：sentence_transformers + torch 体积大、加载慢，
         # 只有真正创建服务时才引入，避免拖慢应用启动
+        import torch
         from sentence_transformers import SentenceTransformer
 
         settings = get_settings()
-        # 国内 HuggingFace 直连不通，走镜像站（可 .env 覆盖）
+
+        # HF_ENDPOINT 仅在「联网下载仓库名模型」时生效；本地路径加载不触发
+        # 下载，这行为「切换到 BAAI/bge-m3 等仓库名」时的镜像兜底，可 .env 覆盖。
         os.environ.setdefault("HF_ENDPOINT", settings.hf_endpoint)
 
-        logger.info(
-            "加载 embedding 模型: %s device=%s", settings.embedding_model, settings.embedding_device,
-        )
-        self._model = SentenceTransformer(
-            settings.embedding_model, device=settings.embedding_device,
-        )
-        self._dim = self._model.get_sentence_embedding_dimension()
+        # 设备兜底：配置要求 cuda 但 torch 非 GPU 版 / 驱动异常时回退 cpu，
+        # 避免首次调用（懒加载）才抛 RuntimeError、错误信息难定位。
+        device = settings.embedding_device
+        if device == "cuda" and not torch.cuda.is_available():
+            logger.warning("cuda 不可用（torch 非 GPU 版或驱动异常），回退到 cpu")
+            device = "cpu"
+
+        logger.info("加载 embedding 模型: %s device=%s", settings.embedding_model, device)
+        self._model = SentenceTransformer(settings.embedding_model, device=device)
+        # ST 6.0 将 get_sentence_embedding_dimension 改名为 get_embedding_dimension，getattr 兼容新旧
+        getter = getattr(self._model, "get_embedding_dimension", None)
+        if getter is None:
+            getter = self._model.get_sentence_embedding_dimension
+        self._dim = getter()
+
+        # 维度校验：Milvus collection 按 settings.embedding_dim 建，向量按模型
+        # 实际维度产；两者不一致时入库会报 dimension mismatch，这里提前失败、
+        # 报错更清晰（换模型时最易踩）。
+        if self._dim != settings.embedding_dim:
+            raise SystemException(
+                f"embedding 维度不一致: 模型实际={self._dim}, 配置={settings.embedding_dim}"
+            )
         logger.info("embedding 模型就绪: dim=%d", self._dim)
 
     @property
