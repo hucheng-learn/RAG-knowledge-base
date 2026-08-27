@@ -13,3 +13,7 @@ pdfplumber>=0.11.0             # PDF 逐页文本提取（替代已维护模式�
 # ============ MySQL 元数据存储（第二阶段） ============
 sqlalchemy>=2.0.30             # ORM
 pymysql>=1.1.0                 # MySQL 驱动（纯 Python，无需编译）
+
+# ============ Embedding / 向量库（第三阶段） ============
+sentence-transformers>=3.0.0   # 本地 bge-m3 embedding 模型（含 torch）
+pymilvus>=2.4.0                # Milvus 向量库 Python 客户端

@@ -66,7 +66,7 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list:
 
 
 def chunk_document(parse_result: ParseResult) -> list:
-    """按页分块：每页内部滑动窗口切分，块携带页码信息。
+    """按页分块：每页内部滑动窗口切分，块携带页码信息。(按解析段分块，PDF 对应物理页，TXT 对应全文)
 
     Args:
         parse_result: 解析结果（含逐页文本 page_texts）。

@@ -73,6 +73,19 @@ class Settings(BaseSettings):
     mysql_password: str = ""
     mysql_db: str = "rag_knowledge"
 
+    # ---------- Embedding ----------
+    embedding_model: str = "BAAI/bge-m3"     # 本地模型（sentence-transformers）
+    embedding_dim: int = 1024                # 向量维度（必须与模型一致，且与 collection 绑定）
+    embedding_device: str = "cpu"            # 推理设备 cpu/cuda
+    hf_endpoint: str = "https://hf-mirror.com"  # HuggingFace 镜像（国内访问，可覆盖）
+
+    # ---------- Milvus ----------
+    milvus_host: str = "127.0.0.1"
+    milvus_port: int = 19530
+    milvus_collection: str = "doc_chunks"    # collection 名
+    milvus_metric: str = "COSINE"            # 相似度度量
+    milvus_index_type: str = "HNSW"          # 索引类型
+
     # ---------- 计算属性：业务层直接使用语义化值 ----------
 
     @property

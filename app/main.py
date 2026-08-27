@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 关闭：后续如有数据库连接池、向量库客户端，在此处统一释放
     logger.info("应用关闭")
 
-
+# 创建 FastAPI 实例
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
