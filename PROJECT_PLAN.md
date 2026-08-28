@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.1 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
+> 当前版本：v1.2 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
 
 ---
 
@@ -228,45 +228,66 @@ project_root/
   响应新增 `chunk_count` 字段。
 - ✅ 连接池配置：pool_pre_ping / pool_recycle / max_overflow；MySQL 不可用时服务降级启动。
 
-**三表建表 SQL（与 ORM 一一对应；实际运行由 `init_db()` 的 `create_all` 自动执行）**
+**三表建表 SQL（与实际数据库一致的权威版本；已按此设计建表，`init_db()` 的 `create_all` 只在表不存在时创建，不会改动已存在的表）**
 
 ```sql
--- 知识库表（第四阶段起启用，表结构先行）
+-- 知识库表：文档的顶层容器
 CREATE TABLE knowledge_bases (
-  id          INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-  name        VARCHAR(64)  NOT NULL UNIQUE COMMENT '知识库名称',
-  description VARCHAR(255) NULL COMMENT '描述',
-  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库';
+  id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  name            VARCHAR(64)  NOT NULL UNIQUE COMMENT '知识库名称',
+  description     VARCHAR(255) NULL COMMENT '描述',
+  owner_id        INT NULL COMMENT '所属用户ID',
+  embedding_model VARCHAR(64)  NULL COMMENT '嵌入模型名称',
+  chunk_strategy  VARCHAR(32)  NULL COMMENT '分块策略(fixed/semantic/sentence)',
+  chunk_size      INT NULL COMMENT '分块大小(字符数)',
+  chunk_overlap   INT NULL COMMENT '分块重叠(字符数)',
+  doc_count       INT NOT NULL DEFAULT 0 COMMENT '文档数量',
+  status          TINYINT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
+  updated_at      DATETIME NULL COMMENT '更新时间',
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  KEY ix_kb_owner_id (owner_id),
+  KEY ix_kb_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库（对应一个文件夹，是文档的顶层容器）';
 
 -- 文档表：上传文件的元数据记录
 CREATE TABLE documents (
   id                INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-  kb_id             INT NULL COMMENT '知识库ID（第四阶段接入）',
+  kb_id             INT NULL COMMENT '知识库ID',
   file_id           VARCHAR(64)  NOT NULL UNIQUE COMMENT '上传返回的文件ID（uuid存储名）',
   original_filename VARCHAR(255) NOT NULL COMMENT '原始文件名',
+  file_type         VARCHAR(32)  NULL COMMENT '文件类型(pdf/docx/txt/md等)',
   file_size         BIGINT       NOT NULL COMMENT '文件大小（字节）',
-  char_count        INT NOT NULL DEFAULT 0 COMMENT '清洗后总字符数',
-  chunk_count       INT NOT NULL DEFAULT 0 COMMENT '分块数量',
+  char_count        INT NOT NULL COMMENT '清洗后总字符数',
+  chunk_count       INT NOT NULL COMMENT '分块数量',
+  status            TINYINT NOT NULL DEFAULT 0 COMMENT '处理状态: 0-待解析 1-解析中 2-解析完成 3-失败',
+  parse_error       TEXT NULL COMMENT '解析失败原因',
   created_at        DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at        DATETIME NULL COMMENT '更新时间',
+  KEY kb_id (kb_id),
+  KEY ix_doc_status (status),
+  KEY ix_doc_file_type (file_type),
   CONSTRAINT fk_documents_kb FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档（对应一个上传的文件，属于某个知识库）';
 
 -- 分块表：检索最小单元，与 Milvus 向量一一对应
 CREATE TABLE chunks (
-  id          INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-  doc_id      INT NOT NULL COMMENT '所属文档ID',
-  kb_id       INT NULL COMMENT '知识库ID（第四阶段接入）',
-  chunk_index INT NOT NULL COMMENT '文档内块编号（从0开始）',
-  content     TEXT NOT NULL COMMENT '块原始文本',
-  page_number INT NOT NULL COMMENT '来源页码（从1开始）',
-  vector_id   VARCHAR(64) NULL COMMENT 'Milvus向量ID（第三阶段填充，此前为NULL）',
-  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  KEY idx_chunks_doc_id (doc_id),
-  KEY idx_chunks_created_at (created_at),
+  id               INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  doc_id           INT NOT NULL COMMENT '所属文档ID',
+  kb_id            INT NULL COMMENT '知识库ID',
+  chunk_index      INT NOT NULL COMMENT '文档内块编号（从0开始）',
+  content          TEXT NOT NULL COMMENT '块原始文本',
+  token_count      INT NULL COMMENT 'token数量',
+  embedding_status TINYINT NOT NULL DEFAULT 0 COMMENT '嵌入状态: 0-待嵌入 1-已嵌入 2-失败',
+  page_number      INT NOT NULL COMMENT '来源页码（从1开始）',
+  vector_id        VARCHAR(64) NULL COMMENT 'Milvus向量ID（与chunk id一一对应）',
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  KEY kb_id (kb_id),
+  KEY ix_chunks_doc_id (doc_id),
+  KEY ix_chunks_created_at (created_at),
+  KEY ix_chunk_embedding_status (embedding_status),
   CONSTRAINT fk_chunks_doc FOREIGN KEY (doc_id) REFERENCES documents(id),
   CONSTRAINT fk_chunks_kb  FOREIGN KEY (kb_id)  REFERENCES knowledge_bases(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文本分块';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='检索片段（文档切分后的chunk，是检索和嵌入的最小单元）';
 ```
 
 - ⚠️ 待办（后续阶段）：文档/知识库管理接口（第四阶段）；Alembic 迁移替代 create_all（第七阶段）。
@@ -330,5 +351,6 @@ CREATE TABLE chunks (
 | 2026-08-27 | v1.0 | 第三阶段完成：bge-m3（GPU）+ Milvus docker-compose 部署 + Embedding 抽象 + vector_service + 入库全链路（双写一致 + 补偿）；修复 pymilvus 3.0 API 兼容、load_collection 缺失、补偿删除孤儿 chunk 三个真实问题；文档头部增加版本/更新时间，目录结构同步 | 完成第三阶段；真实 Milvus + GPU 全链路验证通过 |
 | 2026-08-27 | v0.10 | 第三阶段完成：bge-m3（1024 维）+ Milvus 向量入库全链路；环境切 conda `rag_kb`（GPU torch）并本地加载 bge-m3 权重 | 国内下载 GPU torch / bge-m3 权重过慢，改为手动下载 + 本地路径加载 |
 | 2026-08-28 | v1.1 | 第四阶段完成：知识库增删查 + 文档删除级联（Milvus/MySQL/文件三层清理）+ 上传挂知识库；新增 knowledge_base_service/router | 完成第四阶段；级联删除顺序、name 唯一、错误场景全部实测通过 |
+| 2026-08-28 | v1.2 | 字段一致性对齐：以实际数据库为准补齐 ORM（knowledge_bases 补 owner_id/embedding_model/chunk_strategy/chunk_size/chunk_overlap/doc_count/status/updated_at；documents 补 file_type/status/parse_error/updated_at；chunks 补 token_count/embedding_status）；代码接入这些字段（file_type/status=2/embedding_status=1/doc_count 上传自增删除自减）；PROJECT_PLAN DDL 更新为权威版本；新增 scripts/verify_schema.py 校验工具 | 修复 ORM/文档/实际库三方字段不一致 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

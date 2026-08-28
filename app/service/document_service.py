@@ -9,9 +9,11 @@
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import UploadFile
+from sqlalchemy import func
 from starlette.concurrency import run_in_threadpool
 
 from app.config.settings import get_settings
@@ -102,7 +104,7 @@ async def upload_document(
     except Exception:
         # 补偿：删 Milvus 向量 + 删 MySQL 记录 + 删文件
         if doc_id is not None:
-            await run_in_threadpool(_compensate, doc_id)
+            await run_in_threadpool(_compensate, doc_id, kb_id)
         target_path.unlink(missing_ok=True)
         logger.warning("文档处理失败已清理: %s doc_id=%s", target_path.name, doc_id)
         raise
@@ -145,17 +147,25 @@ def _persist_document(
     """documents + chunks 单事务落库，返回 (doc_id, chunk_records)。
 
     一次性 add_all + flush，所有 chunk 的自增 id 一次填充，避免逐条
-    flush 造成的 N 次往返。
+    flush 造成的 N 次往返。同步管线落库即解析完成（status=2）。
+    若挂知识库，同一事务内维护 knowledge_bases.doc_count 冗余计数。
     """
     session = get_session()
     try:
+        # 从原始文件名推导文件类型（如 .txt -> txt）
+        ext = get_extension(original_filename or "")
+        file_type = ext.lstrip(".") or None
+        now = datetime.now()
         doc = Document(
             file_id=file_id,
             kb_id=kb_id,
             original_filename=original_filename or "",
+            file_type=file_type,
             file_size=file_size,
             char_count=len(cleaned),
             chunk_count=len(chunks),
+            status=2,  # 同步管线：解析完成
+            updated_at=now,
         )
         session.add(doc)
         session.flush()  # 拿 doc.id
@@ -172,6 +182,13 @@ def _persist_document(
         ]
         session.add_all(chunk_objs)
         session.flush()  # 一次性填充所有 chunk.id
+
+        # 维护知识库的文档计数（与 list 接口展示一致，同一事务保证原子）
+        if kb_id is not None:
+            session.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).update(
+                {KnowledgeBase.doc_count: KnowledgeBase.doc_count + 1},
+                synchronize_session=False,
+            )
 
         chunk_records = [
             _ChunkRecord(
@@ -193,11 +210,12 @@ def _persist_document(
 
 
 def _mark_vectorized(doc_id: int) -> None:
-    """回填 vector_id（= chunk.id，即 Milvus 主键），标记已向量化。"""
+    """回填 vector_id（= chunk.id，即 Milvus 主键）并置 embedding_status=1。"""
     session = get_session()
     try:
         session.query(Chunk).filter(Chunk.doc_id == doc_id).update(
-            {Chunk.vector_id: Chunk.id}, synchronize_session=False
+            {Chunk.vector_id: Chunk.id, Chunk.embedding_status: 1},
+            synchronize_session=False,
         )
         session.commit()
     except Exception:
@@ -208,8 +226,11 @@ def _mark_vectorized(doc_id: int) -> None:
         session.close()
 
 
-def _compensate(doc_id: int) -> None:
-    """补偿清理：删 Milvus 向量 + 删 MySQL 记录（幂等，单点失败不阻断）。"""
+def _compensate(doc_id: int, kb_id: int | None = None) -> None:
+    """补偿清理：删 Milvus 向量 + 删 MySQL 记录 + 回退知识库文档计数。
+
+    幂等，单点失败不阻断后续清理。
+    """
     try:
         delete_by_doc(doc_id)
     except Exception:
@@ -220,6 +241,12 @@ def _compensate(doc_id: int) -> None:
         # 不触发 ORM 关系级联，必须先删子表，否则产生孤儿 chunk
         session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
         session.query(Document).filter(Document.id == doc_id).delete()
+        # 回退知识库文档计数（补偿 persist 时那次 +1）
+        if kb_id is not None:
+            session.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).update(
+                {KnowledgeBase.doc_count: func.greatest(KnowledgeBase.doc_count - 1, 0)},
+                synchronize_session=False,
+            )
         session.commit()
     except Exception:
         session.rollback()
@@ -259,11 +286,16 @@ def purge_document(doc) -> None:
         delete_by_doc(doc_id)
     except Exception:
         logger.exception("删除 Milvus 向量失败: doc_id=%s", doc_id)
-    # 2) MySQL 记录（先子表后父表，批量删除不触发 ORM 级联）
+    # 2) MySQL 记录（先子表后父表，批量删除不触发 ORM 级联）+ 回退知识库文档计数
     session = get_session()
     try:
         session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
         session.query(Document).filter(Document.id == doc_id).delete()
+        if doc.kb_id is not None:
+            session.query(KnowledgeBase).filter(KnowledgeBase.id == doc.kb_id).update(
+                {KnowledgeBase.doc_count: func.greatest(KnowledgeBase.doc_count - 1, 0)},
+                synchronize_session=False,
+            )
         session.commit()
     except Exception:
         session.rollback()

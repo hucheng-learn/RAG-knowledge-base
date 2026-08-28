@@ -169,6 +169,20 @@ documents + chunks **同一事务**：`add(doc) → flush()（拿自增 id）→
 - 删除：先删 Milvus 向量 → 再删 MySQL 记录（或软删 + 定时清理兜底）；
 - **面试必答**："MySQL 有记录但 Milvus 没向量"→ 对账任务（定期比对两边 id，差异补偿）。
 
+### 6.6 字段设计：为异步管线预留的状态字段（第四阶段对齐）
+
+实际表比基础版多出一组「状态/配置」字段，反映最初设计里**异步管线**的意图：
+
+| 字段 | 含义 | 设计意图 |
+|---|---|---|
+| `documents.status` (0待解析/1解析中/2完成/3失败) + `parse_error` | 解析状态 + 失败原因 | 支持异步解析（上传后后台处理，前端轮询状态） |
+| `chunks.embedding_status` (0待嵌入/1已嵌入/2失败) | 向量化状态 | 单独跟踪每个 chunk 的嵌入进度，失败可精准重试 |
+| `knowledge_bases.embedding_model / chunk_strategy / chunk_size / chunk_overlap` | 每库独立配置 | 不同知识库用不同模型/分块策略（覆盖全局默认） |
+| `knowledge_bases.owner_id` | 归属用户 | 多租户/多用户隔离铺路 |
+| `knowledge_bases.doc_count` | 冗余文档数 | 反规范化，列表免 COUNT join |
+
+当前实现是**同步管线**（上传内完成解析+嵌入，成功即 status=2 / embedding_status=1），所以这些状态字段在成功路径上直接跳到终态；字段本身为将来改异步保留了扩展空间。`doc_count` 是唯一真正被用到的冗余列（上传自增、删除自减，list 直接读取，免 COUNT）。
+
 ---
 
 ## 7. 日志与可观测性

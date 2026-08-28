@@ -8,8 +8,6 @@
    SQLAlchemy 批量 Query.delete() 不触发 ORM 关系级联，必须显式排序。
 """
 
-from sqlalchemy import func
-
 from app.models.orm import get_session
 from app.models.orm.document import Document
 from app.models.orm.knowledge_base import KnowledgeBase
@@ -50,28 +48,16 @@ def create_kb(name: str, description: str | None = None) -> KnowledgeBaseSummary
 
 
 def list_kbs() -> list:
-    """查询全部知识库（每个库带文档数，LEFT JOIN + GROUP BY）。"""
+    """查询全部知识库（doc_count 取自维护好的冗余列，上传/删除时同步更新）。"""
     session = get_session()
     try:
-        rows = (
-            session.query(
-                KnowledgeBase.id,
-                KnowledgeBase.name,
-                KnowledgeBase.description,
-                KnowledgeBase.created_at,
-                func.count(Document.id),
-            )
-            .outerjoin(Document, Document.kb_id == KnowledgeBase.id)
-            .group_by(KnowledgeBase.id)
-            .order_by(KnowledgeBase.id)
-            .all()
-        )
+        kbs = session.query(KnowledgeBase).order_by(KnowledgeBase.id).all()
         return [
             KnowledgeBaseSummary(
-                id=r.id, name=r.name, description=r.description,
-                doc_count=r[4], created_at=r.created_at,
+                id=kb.id, name=kb.name, description=kb.description,
+                doc_count=kb.doc_count, created_at=kb.created_at,
             )
-            for r in rows
+            for kb in kbs
         ]
     finally:
         session.close()
