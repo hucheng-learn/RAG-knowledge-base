@@ -29,7 +29,7 @@ copy .env.example .env          # Windows
 docker compose -f deploy/docker-compose.milvus.yml up -d
 
 # 5. 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 启动后访问：
