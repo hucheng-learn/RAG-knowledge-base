@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.2 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
+> 当前版本：v1.3 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
 
 ---
 
@@ -352,5 +352,27 @@ CREATE TABLE chunks (
 | 2026-08-27 | v0.10 | 第三阶段完成：bge-m3（1024 维）+ Milvus 向量入库全链路；环境切 conda `rag_kb`（GPU torch）并本地加载 bge-m3 权重 | 国内下载 GPU torch / bge-m3 权重过慢，改为手动下载 + 本地路径加载 |
 | 2026-08-28 | v1.1 | 第四阶段完成：知识库增删查 + 文档删除级联（Milvus/MySQL/文件三层清理）+ 上传挂知识库；新增 knowledge_base_service/router | 完成第四阶段；级联删除顺序、name 唯一、错误场景全部实测通过 |
 | 2026-08-28 | v1.2 | 字段一致性对齐：以实际数据库为准补齐 ORM（knowledge_bases 补 owner_id/embedding_model/chunk_strategy/chunk_size/chunk_overlap/doc_count/status/updated_at；documents 补 file_type/status/parse_error/updated_at；chunks 补 token_count/embedding_status）；代码接入这些字段（file_type/status=2/embedding_status=1/doc_count 上传自增删除自减）；PROJECT_PLAN DDL 更新为权威版本；新增 scripts/verify_schema.py 校验工具 | 修复 ORM/文档/实际库三方字段不一致 |
+| 2026-08-28 | v1.3 | README 补全（第四阶段进度、接口清单、前端说明、环境注意）；新增第 11 节「前端页面设计」（单页 HTML，三个 Tab：知识库管理/文档上传/RAG 问答） | 完善项目文档与前端规划，待第五阶段后开发 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
+
+---
+
+## 11. 前端页面设计（极简单页，待第五阶段后开发）
+
+**技术选型**：单页 HTML + 原生 JS（不引入构建工具/框架，保持"极简"）。页面由 FastAPI 以静态文件托管（`app/static/`），或直接双击 HTML 跨域调用后端接口（需后端开 CORS）。
+
+**三个页面（或一个单页三 Tab）**：
+
+| 页面 | 功能 | 调用接口 |
+|---|---|---|
+| 知识库管理 | 新建 / 列表 / 删除知识库 | `POST/GET/DELETE /api/v1/kbs` |
+| 文档上传 | 选择知识库 + 上传文档 + 显示解析结果（字符数/分块数/预览） | `POST /api/v1/documents/upload?kb_id=` |
+| RAG 问答 | 输入问题 → SSE 流式显示回答 + 溯源片段（文档名/原文/页码） | `POST /api/v1/chat`（SSE） |
+
+**交互要点**：
+- 问答页用 `fetch` + `ReadableStream`（或 `EventSource`）消费 SSE，逐 token 追加到界面，展示 `start/delta/done` 事件；
+- 溯源片段以卡片展示（文档名称 + 原文 + 相似度/页码）；
+- 知识库列表、文档列表刷新逻辑简单化，无需前端状态管理。
+
+**开发顺序**：第五阶段 RAG 接口完成后，再做前端（否则无问答接口可调）。
