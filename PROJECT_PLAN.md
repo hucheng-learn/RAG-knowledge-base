@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.0 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-27
+> 当前版本：v1.1 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
 
 ---
 
@@ -181,7 +181,7 @@ project_root/
 | 第一阶段 | 项目骨架 + 文件上传解析模块 | ✅ 已完成 |
 | 第二阶段 | 文本分块 + MySQL 元数据存储 | ✅ 已完成 |
 | 第三阶段 | Embedding 接入 + Milvus 向量入库 | ✅ 已完成 |
-| 第四阶段 | 知识库管理接口（含级联删除） | ⬜ 未开始 |
+| 第四阶段 | 知识库管理接口（含级联删除） | ✅ 已完成 |
 | 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源） | ⬜ 未开始 |
 | 第六阶段 | 工程稳定性优化 | ⬜ 未开始 |
 | 第七阶段 | 容器部署（Dockerfile + docker-compose） | ⬜ 未开始 |
@@ -227,6 +227,48 @@ project_root/
 - ✅ 上传全链路接入：上传 → 解析 → 清洗 → 分块（按页携带页码）→ 元数据+分块单事务落库；
   响应新增 `chunk_count` 字段。
 - ✅ 连接池配置：pool_pre_ping / pool_recycle / max_overflow；MySQL 不可用时服务降级启动。
+
+**三表建表 SQL（与 ORM 一一对应；实际运行由 `init_db()` 的 `create_all` 自动执行）**
+
+```sql
+-- 知识库表（第四阶段起启用，表结构先行）
+CREATE TABLE knowledge_bases (
+  id          INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  name        VARCHAR(64)  NOT NULL UNIQUE COMMENT '知识库名称',
+  description VARCHAR(255) NULL COMMENT '描述',
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库';
+
+-- 文档表：上传文件的元数据记录
+CREATE TABLE documents (
+  id                INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  kb_id             INT NULL COMMENT '知识库ID（第四阶段接入）',
+  file_id           VARCHAR(64)  NOT NULL UNIQUE COMMENT '上传返回的文件ID（uuid存储名）',
+  original_filename VARCHAR(255) NOT NULL COMMENT '原始文件名',
+  file_size         BIGINT       NOT NULL COMMENT '文件大小（字节）',
+  char_count        INT NOT NULL DEFAULT 0 COMMENT '清洗后总字符数',
+  chunk_count       INT NOT NULL DEFAULT 0 COMMENT '分块数量',
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  CONSTRAINT fk_documents_kb FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档';
+
+-- 分块表：检索最小单元，与 Milvus 向量一一对应
+CREATE TABLE chunks (
+  id          INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  doc_id      INT NOT NULL COMMENT '所属文档ID',
+  kb_id       INT NULL COMMENT '知识库ID（第四阶段接入）',
+  chunk_index INT NOT NULL COMMENT '文档内块编号（从0开始）',
+  content     TEXT NOT NULL COMMENT '块原始文本',
+  page_number INT NOT NULL COMMENT '来源页码（从1开始）',
+  vector_id   VARCHAR(64) NULL COMMENT 'Milvus向量ID（第三阶段填充，此前为NULL）',
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  KEY idx_chunks_doc_id (doc_id),
+  KEY idx_chunks_created_at (created_at),
+  CONSTRAINT fk_chunks_doc FOREIGN KEY (doc_id) REFERENCES documents(id),
+  CONSTRAINT fk_chunks_kb  FOREIGN KEY (kb_id)  REFERENCES knowledge_bases(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文本分块';
+```
+
 - ⚠️ 待办（后续阶段）：文档/知识库管理接口（第四阶段）；Alembic 迁移替代 create_all（第七阶段）。
 
 ### 8.3 第三阶段：Embedding + Milvus 向量入库（✅ 已完成）
@@ -235,10 +277,16 @@ project_root/
 - ✅ 文档入库：分块 → 向量化 → 双写 MySQL + Milvus（见 6.3），失败补偿删除。
 - ✅ 本地加载 bge-m3 权重（`EMBEDDING_MODEL` 指向本地路径），`EMBEDDING_DEVICE=cuda` GPU 推理。
 
-### 8.4 第四阶段：知识库管理接口（预留）
+### 8.4 第四阶段：知识库管理接口（✅ 2026-08-28）
 
-- 新建 / 查询 / 删除知识库。
-- 删除文档时，同步删除 Milvus 对应向量 + MySQL 全部对应 chunk 记录（级联删除 + 补偿）。
+- ✅ 知识库增删查：`POST/GET/DELETE /api/v1/kbs`，`GET /api/v1/kbs/{id}`（name 唯一、Pydantic 强校验）；
+- ✅ 文档删除：`DELETE /api/v1/documents/{file_id}`，级联清理 Milvus 向量 + MySQL chunks/documents + 磁盘文件；
+- ✅ 知识库删除：级联清理其下所有文档（复用 `purge_document` 逐文档清理）；
+- ✅ 上传挂知识库：`/upload?kb_id=` 可选参数，入库写 documents.kb_id / chunks.kb_id；
+- ✅ 级联顺序要点：先 Milvus → 再 MySQL 子表（chunks）→ 再父表（documents/知识库）→ 最后磁盘文件；
+  批量 `Query.delete()` 不触发 ORM 级联，必须显式先删子表；
+- ✅ 真实环境验证：建库/去重(1003)/列表带 doc_count/详情带文档/删文档级联/删库级联/各类 1002 错误场景全部通过；
+- ⚠️ 待办：Milvus 删除异步生效需理解 flush/compaction 语义；生产建议 Alembic（第七阶段）。
 
 ### 8.5 第五阶段：RAG 问答接口（预留）
 
@@ -281,5 +329,6 @@ project_root/
 | 2026-08-21 | v0.9 | 工作流调整：合 main + 推远程由用户自行执行（AI 只推 dev）；`TECH_DESIGN.md` 移除运维/环境层面琐碎问题记录 | 用户指定；文档只保留有讲解价值的代码设计与面试要点 |
 | 2026-08-27 | v1.0 | 第三阶段完成：bge-m3（GPU）+ Milvus docker-compose 部署 + Embedding 抽象 + vector_service + 入库全链路（双写一致 + 补偿）；修复 pymilvus 3.0 API 兼容、load_collection 缺失、补偿删除孤儿 chunk 三个真实问题；文档头部增加版本/更新时间，目录结构同步 | 完成第三阶段；真实 Milvus + GPU 全链路验证通过 |
 | 2026-08-27 | v0.10 | 第三阶段完成：bge-m3（1024 维）+ Milvus 向量入库全链路；环境切 conda `rag_kb`（GPU torch）并本地加载 bge-m3 权重 | 国内下载 GPU torch / bge-m3 权重过慢，改为手动下载 + 本地路径加载 |
+| 2026-08-28 | v1.1 | 第四阶段完成：知识库增删查 + 文档删除级联（Milvus/MySQL/文件三层清理）+ 上传挂知识库；新增 knowledge_base_service/router | 完成第四阶段；级联删除顺序、name 唯一、错误场景全部实测通过 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

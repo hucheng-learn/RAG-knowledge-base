@@ -245,5 +245,40 @@ MySQL 落库（拿 chunk.id）→ 批量向量化 → 写 Milvus（主键=chunk.
 
 ---
 
+## 10. 知识库管理与删除级联（第四阶段）
+
+### 10.1 知识库接口设计
+
+- `POST /api/v1/kbs` 新建：name 唯一（查重 → 重复抛 1003 业务异常），Pydantic 强校验（1~64 字符、description ≤255）；
+- `GET /api/v1/kbs` 列表：LEFT JOIN + GROUP BY 统计每个库的文档数（`doc_count`）；
+- `GET /api/v1/kbs/{id}` 详情：含文档列表；
+- `DELETE /api/v1/kbs/{id}`：删除知识库 + 级联清理全部文档；
+- 上传接口加可选 `kb_id`，入库写 `documents.kb_id` / `chunks.kb_id`（先校验库存在，不存在抛 1002）。
+
+### 10.2 删除级联（面试重点）
+
+**删除顺序（为什么这么排）**：
+
+```
+① Milvus 向量（delete_by_doc）  → 先删，避免"向量还在但元数据没了"
+② MySQL chunks（先子表）
+③ MySQL documents / knowledge_bases（后父表）
+④ 磁盘文件（uploads/{file_id}{ext}）
+```
+
+**两个必须讲清的坑**：
+
+1. **批量 `Query.delete()` 不触发 ORM 关系级联**：SQLAlchemy 里 `session.delete(doc)` 才会触发 `cascade="all, delete-orphan"`；而 `session.query(...).delete()` 是直接执行 SQL，**必须手动先删子表 chunks 再删父表 documents**，否则产生孤儿数据（这是我们真实踩过的）；
+2. **Milvus 删除是异步生效的**：`client.delete()` 返回成功但数据要到 compaction/flush 才物理清除，`count(*)` 可能短暂仍显示旧值——理解这个语义才能解释"删了但数量没立刻变"。
+
+**复用设计**：`purge_document(doc)` 是"清理单个文档全部分层"的唯一入口，文档删除和知识库删除都复用它，避免同一段级联逻辑写两遍（DRY）。
+
+### 10.3 幂等与容错
+
+- 每个删除环节单独 try/except：单点失败（如 Milvus 挂了）不阻断后续清理，只记 ERROR 日志——删除操作尽量"尽力而为"，不因一个依赖故障让整个删除失败卡住。
+
+---
+
 > 更新记录：v0.2 2026-08-21 覆盖第一、二阶段技术方案与面试要点；移除运维/环境层面的琐碎问题记录（本文档只沉淀有讲解价值的代码设计与面试要点）。
 > v0.3 2026-08-27 新增第三阶段：Embedding 抽象、Milvus collection 设计、双写一致性落地、环境工程要点。
+> v0.4 2026-08-28 新增第四阶段：知识库接口设计、删除级联顺序、批量删除不触发 ORM 级联、Milvus 删除异步语义。

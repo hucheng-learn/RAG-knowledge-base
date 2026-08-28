@@ -18,6 +18,7 @@ from app.config.settings import get_settings
 from app.models.orm import get_session
 from app.models.orm.chunk import Chunk
 from app.models.orm.document import Document
+from app.models.orm.knowledge_base import KnowledgeBase
 from app.models.schemas import UploadResponse
 from app.service.chunk_service import chunk_document
 from app.service.embedding_service import get_embedding_service
@@ -28,8 +29,10 @@ from app.service.vector_service import (
     insert_chunk_vectors,
 )
 from app.utils.clean_text import clean_text
+from app.utils.exceptions import BizException
 from app.utils.file_utils import get_extension, save_upload_file
 from app.utils.logger import get_logger
+from app.utils.response import RespCode
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -45,13 +48,23 @@ class _ChunkRecord:
     page_number: int
 
 
-async def upload_document(upload_file: UploadFile) -> UploadResponse:
-    """上传文档：保存 → 解析 → 清洗 → 分块 → 落库 → 向量化 → 写 Milvus。"""
+async def upload_document(
+    upload_file: UploadFile, kb_id: int | None = None,
+) -> UploadResponse:
+    """上传文档：保存 → 解析 → 清洗 → 分块 → 落库 → 向量化 → 写 Milvus。
+
+    Args:
+        kb_id: 可选，指定所属知识库；为 None 时文档不归属任何知识库。
+    """
     target_path: Path = await save_upload_file(upload_file)
     file_size = target_path.stat().st_size
     doc_id: int | None = None
 
     try:
+        # 若指定知识库，先校验存在（不存在抛业务异常）
+        if kb_id is not None:
+            await run_in_threadpool(_validate_kb, kb_id)
+
         # 解析 + 清洗 + 分块
         extension = get_extension(upload_file.filename or "")
         parser = get_parser(extension)
@@ -62,7 +75,7 @@ async def upload_document(upload_file: UploadFile) -> UploadResponse:
         # 1) MySQL 落库（单事务），拿 doc_id + 每个 chunk 的 id
         doc_id, chunk_records = await run_in_threadpool(
             _persist_document, target_path.stem, upload_file.filename,
-            file_size, cleaned, chunks,
+            file_size, cleaned, chunks, kb_id,
         )
 
         # 2) 向量化（首次调用会懒加载 bge-m3 模型，较慢）
@@ -127,6 +140,7 @@ def _persist_document(
     file_size: int,
     cleaned: str,
     chunks: list,
+    kb_id: int | None = None,
 ) -> tuple:
     """documents + chunks 单事务落库，返回 (doc_id, chunk_records)。
 
@@ -137,6 +151,7 @@ def _persist_document(
     try:
         doc = Document(
             file_id=file_id,
+            kb_id=kb_id,
             original_filename=original_filename or "",
             file_size=file_size,
             char_count=len(cleaned),
@@ -148,6 +163,7 @@ def _persist_document(
         chunk_objs = [
             Chunk(
                 doc_id=doc.id,
+                kb_id=kb_id,
                 chunk_index=c.chunk_index,
                 content=c.content,
                 page_number=c.page_number,
@@ -210,3 +226,70 @@ def _compensate(doc_id: int) -> None:
         logger.exception("补偿删除 MySQL 文档失败: doc_id=%s", doc_id)
     finally:
         session.close()
+
+
+# ---------------- 第四阶段：知识库归属 + 文档级联删除 ----------------
+
+def _validate_kb(kb_id: int) -> None:
+    """校验知识库存在，不存在抛业务异常（code=NOT_FOUND）。"""
+    session = get_session()
+    try:
+        exists = session.query(KnowledgeBase.id).filter(KnowledgeBase.id == kb_id).first()
+        if exists is None:
+            raise BizException(f"知识库不存在: kb_id={kb_id}", code=RespCode.NOT_FOUND)
+    finally:
+        session.close()
+
+
+def _resolve_storage_path(doc) -> Path:
+    """根据 file_id + 原始文件名后缀还原磁盘存储路径（uploads/{file_id}{ext}）。"""
+    ext = get_extension(doc.original_filename or "")
+    return settings.upload_dir_path / f"{doc.file_id}{ext}"
+
+
+def purge_document(doc) -> None:
+    """级联清理单个文档的全部分层数据：Milvus 向量 → MySQL chunks/documents → 磁盘文件。
+
+    Args:
+        doc: Document ORM 对象（只需读取其 id/file_id/original_filename 属性）。
+    """
+    doc_id = doc.id
+    # 1) Milvus 向量（删除异步生效，此处保证请求已发出）
+    try:
+        delete_by_doc(doc_id)
+    except Exception:
+        logger.exception("删除 Milvus 向量失败: doc_id=%s", doc_id)
+    # 2) MySQL 记录（先子表后父表，批量删除不触发 ORM 级联）
+    session = get_session()
+    try:
+        session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
+        session.query(Document).filter(Document.id == doc_id).delete()
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("删除 MySQL 文档记录失败: doc_id=%s", doc_id)
+    finally:
+        session.close()
+    # 3) 磁盘文件
+    storage = _resolve_storage_path(doc)
+    if storage.exists():
+        storage.unlink()
+    logger.info("文档已级联清理: doc_id=%s file_id=%s", doc_id, doc.file_id)
+
+
+def delete_document(file_id: str) -> dict:
+    """按 file_id 删除单个文档（级联清理 Milvus + MySQL + 磁盘文件）。
+
+    Returns:
+        {"deleted": True, "file_id": ..., "doc_id": ...}
+    """
+    session = get_session()
+    try:
+        doc = session.query(Document).filter(Document.file_id == file_id).first()
+        if doc is None:
+            raise BizException(f"文档不存在: file_id={file_id}", code=RespCode.NOT_FOUND)
+        doc_id = doc.id
+    finally:
+        session.close()
+    purge_document(doc)
+    return {"deleted": True, "file_id": file_id, "doc_id": doc_id}

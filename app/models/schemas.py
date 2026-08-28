@@ -5,7 +5,8 @@
 做不到的（文档里 data 永远是 any）。
 """
 
-from typing import Generic, Optional, TypeVar
+from datetime import datetime
+from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -32,3 +33,51 @@ class UploadResponse(BaseModel):
     preview: Optional[str] = Field(None, description="清洗后文本预览片段（解析模块填充）")
     char_count: Optional[int] = Field(None, description="清洗后总字符数（解析模块填充）")
     chunk_count: Optional[int] = Field(None, description="分块数量（第二阶段起填充）")
+
+
+class KnowledgeBaseCreate(BaseModel):
+    """新建知识库请求体。"""
+
+    name: str = Field(..., min_length=1, max_length=64, description="知识库名称（唯一）")
+    description: Optional[str] = Field(None, max_length=255, description="描述")
+
+
+class DocumentBrief(BaseModel):
+    """文档简要信息（知识库详情中的文档列表项）。"""
+
+    file_id: str = Field(..., description="文件ID（uuid）")
+    original_filename: str = Field(..., description="原始文件名")
+    file_size: int = Field(..., description="文件大小（字节）")
+    char_count: int = Field(..., description="清洗后总字符数")
+    chunk_count: int = Field(..., description="分块数量")
+    created_at: datetime = Field(..., description="创建时间")
+
+
+class KnowledgeBaseSummary(BaseModel):
+    """知识库摘要（列表项）。"""
+
+    id: int
+    name: str
+    description: Optional[str]
+    doc_count: int = Field(0, description="包含文档数")
+    created_at: datetime
+
+
+class KnowledgeBaseDetail(BaseModel):
+    """知识库详情（含文档列表）。"""
+
+    id: int
+    name: str
+    description: Optional[str]
+    created_at: datetime
+    documents: List[DocumentBrief] = Field(default_factory=list, description="文档列表")
+
+
+class DeleteResponse(BaseModel):
+    """删除操作响应（文档/知识库通用）。"""
+
+    deleted: bool = Field(..., description="是否删除成功")
+    kb_id: Optional[int] = Field(None, description="被删除的知识库ID")
+    file_id: Optional[str] = Field(None, description="被删除的文档file_id")
+    name: Optional[str] = Field(None, description="被删除对象名称")
+    deleted_documents: int = Field(0, description="级联删除的文档数")
