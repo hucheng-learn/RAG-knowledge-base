@@ -32,8 +32,9 @@ copy .env.example .env          # Windows
 #    - Milvus：依赖 Docker
 docker compose -f deploy/docker-compose.milvus.yml up -d
 
-# 5. 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# 5. 启动服务（本地默认绑定 127.0.0.1:8000）
+uvicorn app.main:app --reload
+# 如需局域网/其他设备访问，改用：uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 启动后访问：
