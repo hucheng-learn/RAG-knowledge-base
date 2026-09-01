@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     milvus_metric: str = "COSINE"            # 相似度度量
     milvus_index_type: str = "HNSW"          # 索引类型
 
+    # ---------- 大模型（RAG 问答，第五阶段） ----------
+    # DeepSeek 官方 API（OpenAI 兼容格式）
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_api_key: str = ""
+    llm_model: str = "deepseek-v4-flash"     # 推荐：快、成本低，适合流式问答
+    rag_top_k: int = 4                       # 默认召回条数
+    rag_temperature: float = 0.3             # 知识库问答用较低温度，减少幻觉
+    rag_max_tokens: int = 1024               # 回答最大 token 数
+    rag_min_similarity: float = 0.3          # 召回相似度阈值：低于则视为无相关(过滤弱匹配)
+
     # ---------- 计算属性：业务层直接使用语义化值 ----------
 
     @property

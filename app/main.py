@@ -20,7 +20,7 @@ from starlette.responses import Response
 
 from app.config.settings import get_settings
 from app.models.orm import init_db
-from app.routers import document, knowledge_base
+from app.routers import chat, document, knowledge_base
 from app.utils.exceptions import register_exception_handlers
 from app.utils.logger import get_logger, setup_logging
 from app.utils.response import success
@@ -58,9 +58,10 @@ app = FastAPI(
 # 全局异常处理器：所有异常统一转 {code, msg, data} 信封
 register_exception_handlers(app)
 
-# 业务路由：文档上传/解析/删除 + 知识库管理
+# 业务路由：文档上传/解析/删除 + 知识库管理 + RAG 问答
 app.include_router(document.router)
 app.include_router(knowledge_base.router)
+app.include_router(chat.router)
 
 
 @app.middleware("http")

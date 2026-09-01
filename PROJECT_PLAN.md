@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.3 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
+> 当前版本：v1.4 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-08-28
 
 ---
 
@@ -182,7 +182,7 @@ project_root/
 | 第二阶段 | 文本分块 + MySQL 元数据存储 | ✅ 已完成 |
 | 第三阶段 | Embedding 接入 + Milvus 向量入库 | ✅ 已完成 |
 | 第四阶段 | 知识库管理接口（含级联删除） | ✅ 已完成 |
-| 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源） | ⬜ 未开始 |
+| 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源） | ✅ 已完成 |
 | 第六阶段 | 工程稳定性优化 | ⬜ 未开始 |
 | 第七阶段 | 容器部署（Dockerfile + docker-compose） | ⬜ 未开始 |
 
@@ -309,11 +309,15 @@ CREATE TABLE chunks (
 - ✅ 真实环境验证：建库/去重(1003)/列表带 doc_count/详情带文档/删文档级联/删库级联/各类 1002 错误场景全部通过；
 - ⚠️ 待办：Milvus 删除异步生效需理解 flush/compaction 语义；生产建议 Alembic（第七阶段）。
 
-### 8.5 第五阶段：RAG 问答接口（预留）
+### 8.5 第五阶段：RAG 问答接口（✅ 2026-08-28）
 
-- 用户问题向量化、Milvus 召回 top-k 相关文本块。
-- 组装系统提示词 + 检索上下文 + 用户问题。
-- SSE 流式返回大模型回答，附溯源信息（文档名称、原文片段），协议见 6.4。
+- ✅ 大模型接入：DeepSeek 官方 API（OpenAI 兼容），`deepseek-v4-flash`，httpx 手动解析 SSE；
+- ✅ 完整链路：问题向量化 → Milvus 召回 top-k → 相似度阈值过滤 → 回查 MySQL 溯源（文档名/原文/页码）→ 拼上下文 → 流式生成；
+- ✅ SSE 协议（6.4）：`start`（溯源）→ `delta`（逐 token 回答）→ `done`（code/msg/完整回答）；
+- ✅ 防幻觉双保险：`RAG_MIN_SIMILARITY` 阈值过滤弱匹配 + 系统提示词约束"只依据资料、无据答未找到"；
+- ✅ 流式容错：LLM 超时/非200 记完整堆栈，流中断发错误 `done` 事件收尾，避免连接悬挂；
+- ✅ 真实验证：相关问题正确回答带 [来源1] 溯源；无关问题返回"资料中未找到相关信息"；
+- ⚠️ 待办（第六阶段）：token 输入长度校验、LLM 重试、限流、全链路日志。
 
 ### 8.6 第六阶段：工程稳定性优化（预留）
 
@@ -353,6 +357,7 @@ CREATE TABLE chunks (
 | 2026-08-28 | v1.1 | 第四阶段完成：知识库增删查 + 文档删除级联（Milvus/MySQL/文件三层清理）+ 上传挂知识库；新增 knowledge_base_service/router | 完成第四阶段；级联删除顺序、name 唯一、错误场景全部实测通过 |
 | 2026-08-28 | v1.2 | 字段一致性对齐：以实际数据库为准补齐 ORM（knowledge_bases 补 owner_id/embedding_model/chunk_strategy/chunk_size/chunk_overlap/doc_count/status/updated_at；documents 补 file_type/status/parse_error/updated_at；chunks 补 token_count/embedding_status）；代码接入这些字段（file_type/status=2/embedding_status=1/doc_count 上传自增删除自减）；PROJECT_PLAN DDL 更新为权威版本；新增 scripts/verify_schema.py 校验工具 | 修复 ORM/文档/实际库三方字段不一致 |
 | 2026-08-28 | v1.3 | README 补全（第四阶段进度、接口清单、前端说明、环境注意）；新增第 11 节「前端页面设计」（单页 HTML，三个 Tab：知识库管理/文档上传/RAG 问答） | 完善项目文档与前端规划，待第五阶段后开发 |
+| 2026-08-28 | v1.4 | 第五阶段完成：RAG 问答接口（问题向量化→召回→阈值过滤→溯源→拼上下文→SSE 流式生成）；DeepSeek 官方 API（deepseek-v4-flash，httpx 手动解析 SSE）；SSE 协议 start/delta/done；防幻觉双保险（min_similarity + 系统提示词） | 完成第五阶段；真实验证相关问题/无关问题均正确 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
 

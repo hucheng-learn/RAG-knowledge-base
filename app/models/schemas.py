@@ -81,3 +81,11 @@ class DeleteResponse(BaseModel):
     file_id: Optional[str] = Field(None, description="被删除的文档file_id")
     name: Optional[str] = Field(None, description="被删除对象名称")
     deleted_documents: int = Field(0, description="级联删除的文档数")
+
+
+class ChatRequest(BaseModel):
+    """RAG 问答请求体（SSE 流式响应，不用统一信封）。"""
+
+    query: str = Field(..., min_length=1, max_length=2000, description="用户问题")
+    kb_id: Optional[int] = Field(None, description="可选，限定在指定知识库内检索")
+    top_k: int = Field(4, ge=1, le=10, description="召回条数（1-10）")

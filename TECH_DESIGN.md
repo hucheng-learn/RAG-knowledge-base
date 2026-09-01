@@ -293,6 +293,53 @@ MySQL 落库（拿 chunk.id）→ 批量向量化 → 写 Milvus（主键=chunk.
 
 ---
 
+## 11. RAG 问答与 SSE（第五阶段）
+
+### 11.1 完整链路
+
+```
+用户提问 → embed_query（GPU）→ Milvus 召回 top-k
+→ 相似度阈值过滤（RAG_MIN_SIMILARITY，防弱匹配答非所问）
+→ 回查 MySQL 溯源（文档名/原文/页码）→ 组装系统提示词 + 上下文 + 问题
+→ 大模型流式生成 → SSE start/delta/done
+```
+
+### 11.2 SSE 协议（面试点）
+
+普通接口用 `{code,msg,data}` 信封，**流式接口例外**，用 SSE 事件：
+
+```
+event: start   data: [溯源片段{idx,doc_name,content,page,similarity}...]
+event: delta   data: "回答增量文本"
+event: done    data: {"code":0,"msg":"ok","answer":"完整回答","token_count":N}
+```
+
+- **start 先发溯源**：前端可先展示"引用了哪些文档"，再逐 token 追加回答；
+- **done 带完整回答**：方便前端一次性拿到全文（复制/收藏）；
+- 流中途异常：发错误 `done` 事件（code=500）收尾，**避免连接悬挂**；
+- 反向代理需 `X-Accel-Buffering: no` 关闭缓冲，否则 token 不会实时到达。
+
+### 11.3 大模型接入：httpx 手动解析 SSE（不依赖 openai SDK）
+
+- DeepSeek 官方 API 是 OpenAI 兼容格式（`/chat/completions` + `Bearer key`），
+  流式响应 `data: {...}\n\n` 逐行解析；
+- **推理模型陷阱**：DeepSeek 带推理（v4/reasoner）的模型流式输出**先 reasoning_content（推理过程）后 content（回答正文）**——只透出 content，否则把"思考过程"当回答流给前端；
+- 选 httpx 而非 openai SDK：控制力强（能看到每个原始事件）、已是依赖、无新增包；
+- 超时：流式首 token 可能慢，read 给 120s，connect 10s。
+
+### 11.4 防幻觉双保险（面试点）
+
+1. **相似度阈值过滤**：Milvus 总是返回 top-k 条（即使相似度极低），`distance < RAG_MIN_SIMILARITY` 的弱匹配直接丢弃，避免把无关内容喂给模型；
+2. **系统提示词约束**：只依据参考资料作答、无据明确答"未找到相关信息"、可用 [来源N] 标注——即使阈值没拦住，模型也会诚实拒绝编造。
+
+### 11.5 流式并发与响应式注意
+
+- 事件流中间件（请求日志）在 SSE 长连接上要避免缓冲/拦截；本实现 SSE 由 `StreamingResponse` 直接逐块写出；
+- `rag_answer` 是异步生成器，embedding/search/trace 用 `run_in_threadpool` 避免阻塞事件循环，LLM 流式本身是异步 httpx。
+
+---
+
 > 更新记录：v0.2 2026-08-21 覆盖第一、二阶段技术方案与面试要点；移除运维/环境层面的琐碎问题记录（本文档只沉淀有讲解价值的代码设计与面试要点）。
 > v0.3 2026-08-27 新增第三阶段：Embedding 抽象、Milvus collection 设计、双写一致性落地、环境工程要点。
 > v0.4 2026-08-28 新增第四阶段：知识库接口设计、删除级联顺序、批量删除不触发 ORM 级联、Milvus 删除异步语义。
+> v0.5 2026-08-28 新增第五阶段：RAG 问答链路、SSE 协议、httpx 手动解析 SSE（含推理模型 reasoning_content 陷阱）、防幻觉双保险。

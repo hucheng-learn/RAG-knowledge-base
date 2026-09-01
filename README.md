@@ -10,8 +10,8 @@
 - 第二阶段：文本分块 + MySQL 元数据存储（已完成）
 - 第三阶段：Embedding 接入 + Milvus 向量入库（已完成）
 - 第四阶段：知识库管理接口 + 文档删除级联（已完成）
-- 第五阶段：RAG 问答接口（SSE 流式 + 溯源）—— 待开发
-- 前端：极简单页 —— 待第五阶段完成后配套开发
+- 第五阶段：RAG 问答接口（SSE 流式 + 溯源）（已完成）
+- 前端：极简单页 —— 待开发
 
 ## 本地启动
 
@@ -50,7 +50,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | POST | `/api/v1/kbs` | 新建知识库 |
 | GET | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情 |
 | DELETE | `/api/v1/kbs/{id}` | 删除知识库（级联清理全部文档） |
-| POST | `/api/v1/chat` | RAG 问答（SSE 流式，第五阶段开发） |
+| POST | `/api/v1/chat` | RAG 问答（SSE 流式：start 溯源 / delta 回答 / done 结束） |
 
 ## 目录结构
 
