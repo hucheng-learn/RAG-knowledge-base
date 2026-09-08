@@ -18,7 +18,7 @@ from app.models.orm.chunk import Chunk
 from app.models.orm.document import Document
 from app.service.embedding_service import get_embedding_service
 from app.service.llm_service import stream_chat
-from app.service.vector_service import search as milvus_search
+from app.service.vector_service import ensure_collection, search as milvus_search
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -56,7 +56,11 @@ async def rag_answer(
     svc = get_embedding_service()
     qv = await run_in_threadpool(svc.embed_query, query)
 
-    # 2. 召回：可选按知识库过滤（先取该库 doc_ids）
+    # 2. 确保集合存在（Milvus 数据卷重置后集合会丢：
+    #    不存在则重建空集合，让检索走"未检索到"友好分支而不是抛原始错误）
+    await run_in_threadpool(ensure_collection)
+
+    # 2b. 召回：可选按知识库过滤（先取该库 doc_ids）
     doc_ids = None
     if kb_id is not None:
         doc_ids = await run_in_threadpool(_get_kb_doc_ids, kb_id)
