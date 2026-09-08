@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.4 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-01
+> 当前版本：v1.5 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-01
 
 ---
 
@@ -75,25 +75,25 @@ project_root/
 │   │   ├── settings.py            # pydantic-settings 读取 .env，集中配置
 │   ├── routers/
 │   │   ├── __init__.py
-│   │   ├── document.py            # 文件上传/解析接口（第一阶段）
-│   │   ├── knowledge_base.py      # 知识库管理接口（第四阶段）
-│   │   └── chat.py                # RAG 问答 SSE 接口（第五阶段）
+│   │   ├── document.py            # 文件上传/解析接口
+│   │   ├── knowledge_base.py      # 知识库管理接口
+│   │   └── chat.py                # RAG 问答 SSE 接口
 │   ├── service/
 │   │   ├── __init__.py
-│   │   ├── document_service.py    # 文档上传/解析/清洗编排（第一阶段）
+│   │   ├── document_service.py    # 文档上传/解析/清洗编排
 │   │   ├── parser/
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py            # DocumentParser 抽象接口（可扩展 OCR 等）
 │   │   │   ├── txt_parser.py      # txt 解析
 │   │   │   └── pdf_parser.py      # pdfplumber 解析，逐页提取
-│   │   ├── embedding_service.py   # Embedding 抽象（第三阶段）
-│   │   ├── chunk_service.py       # 分块：chunk_size + overlap（第二阶段）
-│   │   ├── vector_service.py      # Milvus 操作封装（第三阶段）
-│   │   └── rag_service.py         # 问答编排：召回+拼prompt+SSE（第五阶段）
+│   │   ├── embedding_service.py   # Embedding 抽象
+│   │   ├── chunk_service.py       # 分块：chunk_size + overlap
+│   │   ├── vector_service.py      # Milvus 操作封装
+│   │   └── rag_service.py         # 问答编排：召回+拼prompt+SSE
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── schemas.py             # Pydantic 请求/响应模型
-│   │   └── orm/                   # SQLAlchemy 表结构（第二阶段起）
+│   │   └── orm/                   # SQLAlchemy 表结构
 │   │       ├── __init__.py
 │   │       ├── knowledge_base.py
 │   │       ├── document.py
@@ -106,14 +106,14 @@ project_root/
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
 ├── deploy/
-│   └── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone，第三阶段）
-├── uploads/                       # 上传文件存储目录（.gitignore）
-├── logs/                          # 日志目录（.gitignore）
+│   └── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone）
+├── uploads/                       # 上传文件存储目录
+├── logs/                          # 日志目录
 ├── PROJECT_PLAN.md                # 本计划文档
 ├── TECH_DESIGN.md                 # 技术设计与面试要点文档
 ├── requirements.txt
 ├── requirements-dev.txt           # 测试工具依赖（fpdf2 等）
-├── .env.example                   # 环境变量模板（提交仓库）；.env 为本地真实配置（gitignore）
+├── .env.example                   # 环境变量模板；.env 为本地真实配置
 ├── .gitignore
 └── README.md
 ```
@@ -168,7 +168,7 @@ project_root/
 4. 每个阶段完成后输出：**目录结构、接口文档、curl 测试命令、本模块设计思路、下一阶段改造扩展点**。
 5. 所有接口参数全部使用 Pydantic 强校验。
 6. 日志打印关键信息：接口入参、文件名称、异常堆栈。
-7. **版本管理约定**：每个阶段完成 → 提交并推送到 `dev` 分支；`dev → main` 的合并与推远程由**用户自行执行**（AI 只推 dev）。
+7. **版本管理约定**：每个阶段完成 → 提交到 `dev` 分支。
 
 ---
 
@@ -358,26 +358,26 @@ CREATE TABLE chunks (
 | 2026-08-28 | v1.2 | 字段一致性对齐：以实际数据库为准补齐 ORM（knowledge_bases 补 owner_id/embedding_model/chunk_strategy/chunk_size/chunk_overlap/doc_count/status/updated_at；documents 补 file_type/status/parse_error/updated_at；chunks 补 token_count/embedding_status）；代码接入这些字段（file_type/status=2/embedding_status=1/doc_count 上传自增删除自减）；PROJECT_PLAN DDL 更新为权威版本；新增 scripts/verify_schema.py 校验工具 | 修复 ORM/文档/实际库三方字段不一致 |
 | 2026-08-28 | v1.3 | README 补全（第四阶段进度、接口清单、前端说明、环境注意）；新增第 11 节「前端页面设计」（单页 HTML，三个 Tab：知识库管理/文档上传/RAG 问答） | 完善项目文档与前端规划，待第五阶段后开发 |
 | 2026-09-01 | v1.4 | 第五阶段完成：RAG 问答接口（问题向量化→召回→阈值过滤→溯源→拼上下文→SSE 流式生成）；DeepSeek 官方 API（deepseek-v4-flash，httpx 手动解析 SSE）；SSE 协议 start/delta/done；防幻觉双保险（min_similarity + 系统提示词） | 完成第五阶段；真实验证相关问题/无关问题均正确 |
+| 2026-09-01 | v1.5 | 前端单页实现：`app/static/index.html` 三个 Tab（知识库管理/文档上传/RAG 问答），fetch+ReadableStream 消费 SSE；FastAPI 同源托管（挂载需在所有路由之后，修复遮蔽 /health 问题） | 配套前端落地，便于可视化测试 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
 
 ---
 
-## 11. 前端页面设计（极简单页，待第五阶段后开发）
+## 11. 前端页面设计（✅ 单页已实现 2026-08-28，随第六阶段微调）
 
-**技术选型**：单页 HTML + 原生 JS（不引入构建工具/框架，保持"极简"）。页面由 FastAPI 以静态文件托管（`app/static/`），或直接双击 HTML 跨域调用后端接口（需后端开 CORS）。
+**技术选型**：单页 HTML + 原生 JS（无构建工具），由 FastAPI 以静态文件同源托管（`app/static/index.html`，挂载 `/`），无 CORS 问题。
 
-**三个页面（或一个单页三 Tab）**：
+**三个 Tab（已实现）**：
 
 | 页面 | 功能 | 调用接口 |
 |---|---|---|
-| 知识库管理 | 新建 / 列表 / 删除知识库 | `POST/GET/DELETE /api/v1/kbs` |
-| 文档上传 | 选择知识库 + 上传文档 + 显示解析结果（字符数/分块数/预览） | `POST /api/v1/documents/upload?kb_id=` |
-| RAG 问答 | 输入问题 → SSE 流式显示回答 + 溯源片段（文档名/原文/页码） | `POST /api/v1/chat`（SSE） |
+| 知识库管理 | 新建 / 列表(文档数) / 删除(带确认) | `POST/GET/DELETE /api/v1/kbs` |
+| 文档上传 | 选择知识库 + 上传 + 显示解析结果(字符数/分块数/预览) | `POST /api/v1/documents/upload?kb_id=` |
+| RAG 问答 | 选择检索范围(全部/指定库) + SSE 流式回答 + 溯源卡片 | `POST /api/v1/chat`（SSE） |
 
-**交互要点**：
-- 问答页用 `fetch` + `ReadableStream`（或 `EventSource`）消费 SSE，逐 token 追加到界面，展示 `start/delta/done` 事件；
-- 溯源片段以卡片展示（文档名称 + 原文 + 相似度/页码）；
-- 知识库列表、文档列表刷新逻辑简单化，无需前端状态管理。
-
-**开发顺序**：第五阶段 RAG 接口完成后，再做前端（否则无问答接口可调）。
+**实现要点**：
+- SSE 用 `fetch` + `ReadableStream` 解析（POST 带 JSON body 无法用 EventSource），按 `\n\n` 分帧、解析 `event:/data:` 行；
+- `start` 事件渲染溯源卡片（文档名/页码/相似度/原文），`delta` 逐 token 追加（带闪烁光标），`done` 收尾（错误时展示 msg）；
+- 前端挂载在**所有路由之后**（Starlette 按注册顺序匹配，放最后才不遮蔽 `/health`、`/docs`、`/api/v1/*`——真实踩过）；
+- 上传/问答按钮 loading 态防重复提交；知识库下拉全局共享（删除后联动刷新）。

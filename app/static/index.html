@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>企业知识库 RAG 助手</title>
+<style>
+  :root {
+    --primary: #2563eb; --primary-dark: #1d4ed8; --bg: #f8fafc;
+    --card: #ffffff; --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
+    --ok: #16a34a; --err: #dc2626; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 24px; }
+  header h1 { font-size: 18px; }
+  header p { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  nav { display: flex; gap: 4px; padding: 0 24px; background: var(--card); border-bottom: 1px solid var(--border); }
+  nav button { border: none; background: none; padding: 12px 18px; font-size: 14px;
+               cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+  nav button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+  main { max-width: 860px; margin: 20px auto; padding: 0 16px; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+          padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], input[type=password], textarea, select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 14px; font-family: inherit; }
+  textarea { resize: vertical; }
+  button.primary { background: var(--primary); color: #fff; border: none; padding: 9px 20px;
+                   border-radius: 6px; font-size: 14px; cursor: pointer; }
+  button.primary:hover { background: var(--primary-dark); }
+  button.primary:disabled { opacity: .6; cursor: not-allowed; }
+  button.danger { background: none; color: var(--err); border: 1px solid var(--err);
+                  padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row input { flex: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
+  .msg { font-size: 13px; margin-top: 10px; }
+  .msg.ok { color: var(--ok); } .msg.err { color: var(--err); }
+  .result-box { background: #f1f5f9; border-radius: 6px; padding: 10px 12px;
+                font-size: 13px; white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto; }
+  /* 溯源卡片 */
+  .trace { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+           margin-bottom: 8px; background: #f0fdf4; font-size: 13px; }
+  .trace .meta { color: var(--muted); margin-bottom: 4px; }
+  .trace .meta b { color: var(--ok); }
+  .trace .content { line-height: 1.6; }
+  /* 回答区 */
+  #answer { min-height: 120px; background: var(--card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 14px 16px; font-size: 15px; line-height: 1.8; }
+  #answer .cursor { display: inline-block; width: 2px; height: 16px; background: var(--primary);
+                    vertical-align: -2px; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .toolbar select { width: auto; min-width: 160px; }
+  .toolbar .spacer { flex: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📚 企业知识库 RAG 助手</h1>
+  <p>文档上传 → 向量入库 → 基于知识库的智能问答（含溯源）</p>
+</header>
+
+<nav id="tabbar">
+  <button class="active" data-tab="kb">知识库管理</button>
+  <button data-tab="upload">文档上传</button>
+  <button data-tab="chat">RAG 问答</button>
+</nav>
+
+<main>
+  <!-- ============ Tab 1：知识库管理 ============ -->
+  <section id="tab-kb" class="page active">
+    <div class="card">
+      <h2>新建知识库</h2>
+      <div class="row">
+        <input type="text" id="kb-name" placeholder="知识库名称（唯一，≤64字符）">
+        <button class="primary" onclick="createKb()">新建</button>
+      </div>
+      <div class="msg" id="kb-form-msg"></div>
+    </div>
+    <div class="card">
+      <h2>知识库列表</h2>
+      <div id="kb-list"><div class="empty">加载中…</div></div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 2：文档上传 ============ -->
+  <section id="tab-upload" class="page">
+    <div class="card">
+      <h2>上传文档到知识库</h2>
+      <label>选择知识库 *</label>
+      <select id="up-kb"><option value="">（请先在知识库管理页创建）</option></select>
+      <label>选择文件（txt / 可复制文本 PDF，≤20MB）</label>
+      <input type="file" id="up-file" accept=".txt,.pdf">
+      <div style="margin-top:14px">
+        <button class="primary" id="up-btn" onclick="uploadDoc()">上传并解析</button>
+      </div>
+      <div class="msg" id="up-msg"></div>
+      <div id="up-result" style="display:none;margin-top:8px">
+        <div class="result-box" id="up-result-text"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 3：RAG 问答 ============ -->
+  <section id="tab-chat" class="page">
+    <div class="card">
+      <h2>向知识库提问</h2>
+      <div class="toolbar">
+        <select id="chat-kb"><option value="">全部知识库</option></select>
+        <span style="font-size:13px;color:var(--muted)">检索范围</span>
+        <div class="spacer"></div>
+      </div>
+      <textarea id="chat-query" rows="3" placeholder="输入你的问题，例如：RAG如何缓解大模型的幻觉问题？"></textarea>
+      <div style="margin-top:12px">
+        <button class="primary" id="chat-btn" onclick="sendChat()">🚀 提问（流式回答）</button>
+        <span class="msg" id="chat-status" style="margin-left:10px"></span>
+      </div>
+    </div>
+    <div class="card" id="trace-panel" style="display:none">
+      <h2>📎 检索溯源</h2>
+      <div id="trace-list"></div>
+    </div>
+    <div class="card">
+      <h2>💬 回答</h2>
+      <div id="answer"><div class="empty">提问后这里会流式显示回答</div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/* ================= 通用工具 ================= */
+
+/** 统一接口调用：解析 {code,msg,data} 信封，非 0 code 抛错 */
+async function api(path, options) {
+  const resp = await fetch(path, options);
+  let body = null;
+  try { body = await resp.json(); } catch (e) { /* 非 JSON */ }
+  if (!resp.ok || !body || body.code !== 0) {
+    const msg = (body && body.msg) || ("HTTP " + resp.status);
+    throw new Error(msg);
+  }
+  return body.data;
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function showMsg(el, text, ok) {
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "err");
+}
+
+/* ================= Tab 切换 ================= */
+
+document.getElementById("tabbar").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#tabbar button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  const tab = btn.dataset.tab;
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById("tab-" + tab).classList.add("active");
+  if (tab === "kb") loadKbs();
+  if (tab === "upload" || tab === "chat") loadKbOptions();
+});
+
+/* ================= Tab 1：知识库管理 ================= */
+
+async function createKb() {
+  const name = document.getElementById("kb-name").value.trim();
+  const msgEl = document.getElementById("kb-form-msg");
+  if (!name) return showMsg(msgEl, "请输入知识库名称", false);
+  try {
+    const data = await api("/api/v1/kbs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    showMsg(msgEl, `✅ 已创建：${data.name}（id=${data.id}）`, true);
+    document.getElementById("kb-name").value = "";
+    loadKbs();
+  } catch (err) { showMsg(msgEl, "❌ " + err.message, false); }
+}
+
+async function loadKbs() {
+  const el = document.getElementById("kb-list");
+  try {
+    const list = await api("/api/v1/kbs");
+    if (!list.length) { el.innerHTML = '<div class="empty">还没有知识库，先在上方新建一个</div>'; return; }
+    const rows = list.map(k => `
+      <tr>
+        <td><b>${esc(k.name)}</b></td>
+        <td>${esc(k.description || "-")}</td>
+        <td>${k.doc_count} 篇</td>
+        <td>${k.created_at ? k.created_at.slice(0, 19).replace("T", " ") : ""}</td>
+        <td><button class="danger" onclick="delKb(${k.id}, '${esc(k.name)}')">删除</button></td>
+      </tr>`).join("");
+    el.innerHTML = `<table><tr><th>名称</th><th>描述</th><th>文档数</th><th>创建时间</th><th></th></tr>${rows}</table>`;
+  } catch (err) { el.innerHTML = `<div class="empty">加载失败：${esc(err.message)}</div>`; }
+}
+
+async function delKb(id, name) {
+  if (!confirm(`确认删除知识库「${name}」？\n其下所有文档的向量、记录与文件都会被删除！`)) return;
+  try {
+    const data = await api(`/api/v1/kbs/${id}`, { method: "DELETE" });
+    alert(`已删除，级联清理 ${data.deleted_documents} 篇文档`);
+    loadKbs(); loadKbOptions();
+  } catch (err) { alert("删除失败：" + err.message); }
+}
+
+/* ================= Tab 2：文档上传 ================= */
+
+async function loadKbOptions() {
+  const list = await api("/api/v1/kbs").catch(() => []);
+  const opts = list.map(k => `<option value="${k.id}">${esc(k.name)}</option>`).join("");
+  const up = document.getElementById("up-kb");
+  const chat = document.getElementById("chat-kb");
+  // 上传下拉：必须有知识库
+  up.innerHTML = opts || '<option value="">（请先创建知识库）</option>';
+  // 问答下拉：全部 + 各库
+  chat.innerHTML = '<option value="">全部知识库</option>' + opts;
+}
+
+async function uploadDoc() {
+  const kbId = document.getElementById("up-kb").value;
+  const file = document.getElementById("up-file").files[0];
+  const msgEl = document.getElementById("up-msg");
+  const btn = document.getElementById("up-btn");
+  if (!kbId) return showMsg(msgEl, "请先选择知识库", false);
+  if (!file) return showMsg(msgEl, "请先选择文件", false);
+  showMsg(msgEl, "上传解析中（首次会加载模型，可能需要十几秒）…", true);
+  btn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const data = await api(`/api/v1/documents/upload?kb_id=${kbId}`, { method: "POST", body: fd });
+    const out = document.getElementById("up-result");
+    out.style.display = "block";
+    document.getElementById("up-result-text").textContent =
+      `✅ 解析入库成功\n文件：${data.original_filename}\n大小：${data.file_size} 字节` +
+      `\n清洗后字符数：${data.char_count}\n分块数：${data.chunk_count}` +
+      `\n预览：\n${data.preview || ""}`;
+    showMsg(msgEl, "", true);
+  } catch (err) { showMsg(msgEl, "❌ " + err.message, false); }
+  finally { btn.disabled = false; }
+}
+
+/* ================= Tab 3：RAG 问答（SSE） ================= */
+
+const answerEl = document.getElementById("answer");
+
+function renderTrace(trace) {
+  const panel = document.getElementById("trace-panel");
+  const list = document.getElementById("trace-list");
+  if (!trace || !trace.length) { panel.style.display = "none"; return; }
+  list.innerHTML = trace.map(t => `
+    <div class="trace">
+      <div class="meta">来源${t.idx} ｜ 📄 <b>${esc(t.doc_name)}</b>
+         ｜ 第 ${t.page} 页 ｜ 相似度 ${t.similarity}</div>
+      <div class="content">${esc(t.content)}</div>
+    </div>`).join("");
+  panel.style.display = "block";
+}
+
+/** 逐 token 追加回答 */
+function appendAnswer(text, done) {
+  if (answerEl.querySelector(".empty")) answerEl.innerHTML = "";
+  const node = document.createElement("span");
+  node.textContent = text;
+  answerEl.appendChild(node);
+  answerEl.scrollTop = answerEl.scrollHeight;
+  if (done) {
+    const cur = answerEl.querySelector(".cursor");
+    if (cur) cur.remove();
+  } else if (!answerEl.querySelector(".cursor")) {
+    answerEl.insertAdjacentHTML("beforeend", '<span class="cursor"></span>');
+  }
+}
+
+async function sendChat() {
+  const query = document.getElementById("chat-query").value.trim();
+  const kbId = document.getElementById("chat-kb").value;
+  const btn = document.getElementById("chat-btn");
+  const status = document.getElementById("chat-status");
+  if (!query) return showMsg(status, "请输入问题", false);
+  showMsg(status, "检索并生成中…", true);
+  btn.disabled = true;
+  answerEl.innerHTML = "";
+  document.getElementById("trace-panel").style.display = "none";
+
+  try {
+    const payload = { query, top_k: 4 };
+    if (kbId) payload.kb_id = Number(kbId);
+    const resp = await fetch("/api/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok || !resp.body) throw new Error("HTTP " + resp.status);
+
+    // 解析 SSE 流（event: xxx\ndata: xxx\n\n）
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop();               // 最后一段可能不完整，留到下轮
+      for (const part of parts) {
+        let event = "message", data = "";
+        for (const line of part.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        const obj = JSON.parse(data);
+        if (event === "start") renderTrace(obj);
+        else if (event === "delta") appendAnswer(obj, false);
+        else if (event === "done") {
+          appendAnswer("", true);
+          if (obj.code !== 0) { answerEl.innerHTML += `<div class="msg err">❌ ${esc(obj.msg)}</div>`; }
+          showMsg(status, obj.answer ? "✅ 完成" : ("ℹ️ " + obj.msg), obj.code === 0);
+        }
+      }
+    }
+  } catch (err) {
+    appendAnswer("", true);
+    answerEl.innerHTML += `<div class="msg err">❌ 请求失败：${esc(err.message)}</div>`;
+    showMsg(status, "", false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* 回车发送（Ctrl/Cmd+回车换行） */
+document.getElementById("chat-query").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    if (!document.getElementById("chat-btn").disabled) sendChat();
+  }
+});
+
+/* 启动：加载一次知识库列表 */
+loadKbs();
+loadKbOptions();
+</script>
+</body>
+</html>

@@ -13,9 +13,11 @@
 
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
 from app.config.settings import get_settings
@@ -90,3 +92,12 @@ async def health_check() -> dict:
     return success(
         data={"status": "ok", "app": settings.app_name, "version": settings.app_version},
     )
+
+
+# 极简前端：必须挂在所有路由之后（Starlette 按注册顺序匹配，
+# 放最后才不会遮蔽 /health、/api/v1/*、/docs 等已注册路由）
+app.mount(
+    "/",
+    StaticFiles(directory=Path(__file__).resolve().parent / "static", html=True),
+    name="frontend",
+)

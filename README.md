@@ -11,7 +11,8 @@
 - 第三阶段：Embedding 接入 + Milvus 向量入库（已完成）
 - 第四阶段：知识库管理接口 + 文档删除级联（已完成）
 - 第五阶段：RAG 问答接口（SSE 流式 + 溯源）（已完成）
-- 前端：极简单页 —— 待开发
+- 前端：极简单页（已完成）
+- 第六阶段：工程稳定性优化 —— 待开发
 
 ## 本地启动
 
@@ -23,7 +24,6 @@ conda activate rag_kb
 pip install -r requirements.txt
 
 # 3. 复制环境变量模板，并修改 EMBEDDING_MODEL（本地 bge-m3 路径）、
-#    EMBEDDING_DEVICE（cuda/cpu）、MYSQL_PASSWORD
 copy .env.example .env          # Windows
 # cp .env.example .env          # Linux/macOS
 
@@ -39,8 +39,9 @@ uvicorn app.main:app --reload
 
 启动后访问：
 
-- 健康检查：http://127.0.0.1:8000/health
+- **前端页面**：http://127.0.0.1:8000/ （知识库管理 / 文档上传 / RAG 问答）
 - Swagger 文档：http://127.0.0.1:8000/docs
+- 健康检查：http://127.0.0.1:8000/health
 
 ## 已提供接口
 
@@ -55,11 +56,13 @@ uvicorn app.main:app --reload
 
 ## 目录结构
 
-见 `PROJECT_PLAN.md` 第 5 节（随阶段逐步落地）。
+见 `PROJECT_PLAN.md` 第 5 节。
 
 ## 前端
 
-配套一个极简单页（知识库管理 / 文档上传 / RAG 问答），设计见 `PROJECT_PLAN.md` 第 11 节，待第五阶段完成后开发。
+极简单页已实现：单文件 `app/static/index.html`（原生 HTML/JS，无构建），三个 Tab：
+知识库管理（新建/列表/删除）、文档上传（选库上传显示解析结果）、RAG 问答（SSE 流式回答 + 溯源卡片）。
+由后端同源托管，启动后直接访问 http://127.0.0.1:8000/ 即可。
 
 ## 环境注意
 
