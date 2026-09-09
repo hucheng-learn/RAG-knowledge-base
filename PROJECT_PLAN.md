@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.6 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-01
+> 当前版本：v1.7 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-09
 
 ---
 
@@ -26,10 +26,11 @@
 | 向量库 | Milvus | 只存 embedding 向量，与 MySQL 元数据一一关联 |
 | 元数据库 | MySQL | 知识库、文档、chunk 元数据 |
 | Embedding | **bge-m3** | 本地 sentence-transformers 加载，1024 维；|
-| 大模型 | 本地 deepseek-harness 服务 | 对话/生成，SSE 流式输出 |
+| 大模型 | DeepSeek 官方 API（OpenAI 兼容） | 对话/生成，SSE 流式输出（`deepseek-v4-flash`） |
 | ORM | SQLAlchemy 2.x | 配合 MySQL |
+| 前端 | 单页 HTML + 原生 JS | FastAPI 静态同源托管（`app/static/`），fetch + ReadableStream 消费 SSE，无构建工具 |
 | 配置 | pydantic-settings + .env | 禁止硬编码 |
-| 部署 | Docker / docker-compose | 后续阶段一键启动 |
+| 部署 | Docker / docker-compose | Milvus 已用 compose 部署，后端一键启动留待后续阶段 |
 
 ---
 
@@ -60,6 +61,7 @@
 | `service` | 业务逻辑层：文档解析、文本清洗、分块、向量入库、检索问答全部在此 | — |
 | `models` | Pydantic 请求/响应模型、MySQL ORM 表结构定义 | — |
 | `utils` | 通用工具：文本清洗工具、全局日志、异常处理、文件工具 | — |
+| `static` | 前端单页（`index.html`，三个 Tab），由 FastAPI 同源托管在 `/` | 不写后端逻辑，只调 REST/SSE |
 
 ---
 
@@ -72,7 +74,7 @@ project_root/
 │   ├── main.py                    # FastAPI 入口：注册路由、全局异常、日志中间件
 │   ├── config/
 │   │   ├── __init__.py
-│   │   ├── settings.py            # pydantic-settings 读取 .env，集中配置
+│   │   └── settings.py            # pydantic-settings 读取 .env，集中配置
 │   ├── routers/
 │   │   ├── __init__.py
 │   │   ├── document.py            # 文件上传/解析接口
@@ -89,6 +91,9 @@ project_root/
 │   │   ├── embedding_service.py   # Embedding 抽象
 │   │   ├── chunk_service.py       # 分块：chunk_size + overlap
 │   │   ├── vector_service.py      # Milvus 操作封装
+│   │   ├── vector_rebuild_service.py # 对账+补偿重建工具
+│   │   ├── knowledge_base_service.py # 知识库增删查
+│   │   ├── llm_service.py         # LLM 流式调用封装
 │   │   └── rag_service.py         # 问答编排：召回+拼prompt+SSE
 │   ├── models/
 │   │   ├── __init__.py
@@ -98,15 +103,21 @@ project_root/
 │   │       ├── knowledge_base.py
 │   │       ├── document.py
 │   │       └── chunk.py
+│   ├── static/                     # 前端单页（托管在 / 根路径）
+│   │   └── index.html             # 三个 Tab：知识库管理 / 文档上传 / RAG 问答
 │   └── utils/
 │       ├── __init__.py
 │       ├── clean_text.py          # 文本清洗（可配置开关）
 │       ├── exceptions.py          # 业务异常 / 系统异常定义
-│       ├── response.py            # 统一返回体 {code, msg, data}
+│       ├── response.py             # 统一返回体 {code, msg, data}
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
 ├── deploy/
 │   └── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone）
+├── sql/                           # MySQL 建表 SQL（权威版本）
+│   └── schema.sql                 # 三张表完整 DDL
+├── scripts/                       # 工具脚本
+│   └── verify_schema.py          # ORM ↔ DB 字段一致性校验
 ├── uploads/                       # 上传文件存储目录
 ├── logs/                          # 日志目录
 ├── PROJECT_PLAN.md                # 本计划文档
@@ -120,43 +131,9 @@ project_root/
 
 ---
 
-## 6. 核心设计决策
+## 6. 技术设计方案（详见 TECH_DESIGN.md）
 
-### 6.1 PDF 解析：pdfplumber
-
-- 通过 `DocumentParser` 抽象接口屏蔽解析器差异，后续扩展 OCR 解析器（扫描版）时上层业务零改动。
-- **扫描版 PDF 策略（第一阶段）**：逐页提取后文本为空或极少 → 抛业务异常「暂不支持扫描版 PDF」。该策略为临时方案，后续可用 OCR（如 PaddleOCR）扩展，接口已预留扩展位。
-
-### 6.2 Embedding：独立抽象，模型已定 bge-m3
-
-- **本地部署 bge-m3（1024 维，sentence-transformers 加载）**。理由：多语言 + 8K 长文本、中文检索效果强、与 16G 独显（cuda 推理）匹配；备选：bge-large-zh-v1.5（更轻）、OpenAI 兼容 embedding 服务。
-- 架构上必须抽象 `EmbeddingService` 接口，实现可切换。
-- ⚠️ Milvus collection 的 **dim 维度与 embedding 模型强绑定**：定下 bge-m3/1024 后，后续换模型需重建 collection。
-
-### 6.3 MySQL + Milvus 双写一致性（工业级关键考点）
-
-- 入库顺序：**先写 MySQL**（落库即拿到 chunk_id）→ **再写 Milvus**（向量 id 与 chunk_id 一一对应）→ 任一步失败走**补偿删除**。
-- 删除顺序：先删 Milvus 向量 → 再删 MySQL 记录（或 MySQL 软删 + 定时清理任务兜底）。
-- 面试必答：MySQL 有记录但 Milvus 没向量的排查与恢复方案（对账任务）。
-
-### 6.4 SSE 流式协议（与统一返回体分开）
-
-- 普通 JSON 接口：统一返回体 `{code, msg, data}`。
-- **SSE 流式接口不使用该信封**，改用事件协议：
-  - `event: start` → 元信息 + 溯源信息（文档名称、原文片段）
-  - `event: delta` → 逐 token 输出
-  - `event: done` → 结束，含 code/msg
-- 接口文档中对流式接口单独说明。
-
-### 6.5 文件存储与命名
-
-- 磁盘文件名用 `uuid4.hex`，原始文件名存数据库/元数据，规避中文文件名与路径穿越问题。
-- 上传目录、日志目录均从 .env 读取，可配置。
-
-### 6.6 Milvus 引入时机
-
-- Milvus standalone 部署依赖 etcd + MinIO，内存 2~4GB 起，**第一阶段不安装**，第二阶段末/第三阶段再引入 docker-compose。
-- 第一阶段接口与设计中不出现任何向量库逻辑（用户约束）。
+各模块的**技术方案、设计理由与面试讲解要点**统一沉淀在 [`TECH_DESIGN.md`](TECH_DESIGN.md)
 
 ---
 
@@ -182,160 +159,40 @@ project_root/
 | 第二阶段 | 文本分块 + MySQL 元数据存储 | ✅ 已完成 |
 | 第三阶段 | Embedding 接入 + Milvus 向量入库 | ✅ 已完成 |
 | 第四阶段 | 知识库管理接口（含级联删除） | ✅ 已完成 |
-| 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源） | ✅ 已完成 |
+| 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源）+ 前端单页 | ✅ 已完成 |
 | 第六阶段 | 工程稳定性优化 | ⬜ 未开始 |
 | 第七阶段 | 容器部署（Dockerfile + docker-compose） | ⬜ 未开始 |
 
 > 状态标记：⬜ 未开始 ｜ 🟡 进行中 ｜ ✅ 已完成
 
-### 8.1 第一阶段：项目骨架 + 文件上传解析模块
+### 8.1 第一阶段：项目骨架 + 文件上传解析（✅ 2026-08-20）
 
-**范围约束：本阶段不实现 Milvus、分块、问答逻辑。**
+- 目录骨架 / `main.py` 入口 / `settings.py` + `.env`；统一返回体 `{code, msg, data}` + 全局异常捕获 + 全局滚动日志；
+- 上传接口（后缀白名单、流式 ≤20MB 大小校验、uuid 命名、失败自动清理落盘）；
+- 解析：`DocumentParser` 抽象 + txt（UTF-8/GBK 自适应）+ pdfplumber PDF，扫描版检测，可配置文本清洗；返回预览片段 + 总字符数。
 
-#### 任务清单
+### 8.2 第二阶段：文本分块 + MySQL 元数据（✅ 2026-08-21）
 
-- [x] 1. 项目骨架：目录结构、`main.py` 入口、`config/settings.py` + `.env.example`（✅ 2026-08-20，含 README/.gitignore，已实测启动）
-- [x] 2. 统一返回体 `{code, msg, data}` + 全局异常捕获（区分业务异常/系统异常，异常打印完整堆栈日志）（✅ 2026-08-20，404/health 实测通过）
-- [x] 3. 全局日志：记录接口入参、文件名称、异常堆栈（✅ 2026-08-20，logger + 请求日志中间件 + 滚动文件落盘）
-- [x] 4. 文件上传接口（✅ 2026-08-20，4 种场景 curl 实测通过）：
-  - [x] 支持 txt、可复制文本 PDF（后缀白名单放行；扫描版 PDF 检测在任务5解析时实现）
-  - [x] 后缀名校验、文件大小校验（单文件 ≤ 20MB，流式累计字节数权威判定）
-  - [x] 重复文件名策略：uuid 自动重命名，避免覆盖
-  - [x] 保存到本地指定目录（路径来自 .env）
-- [x] 5. 文件解析（✅ 2026-08-20，txt/文本PDF/扫描版 3 类实测通过）：
-  - [x] txt：直接读取文本（UTF-8/GBK 自适应编码）
-  - [x] PDF：pdfplumber 逐页提取文字（DocumentParser 抽象，含扫描版检测）
-  - [x] 文本清洗：去除连续多个换行符、多余空白空格、不可见乱码字符，保留合理段落换行；独立工具函数 + .env 可配置开关；记录清洗前后字符数对比日志
-- [x] 6. 上传接口同步完成解析，返回：文件id、原始文件名、文件大小、清洗后文本预览片段、总字符数（✅ 2026-08-20，解析失败自动清理落盘文件）
-- [x] 7. 基础依赖文件 `requirements.txt`（✅ 提前至骨架阶段完成）
-- [x] 8. uvicorn 启动服务（✅ README 已含启动命令，`/health` 实测 200）
+- 分块：`chunk_size` + `overlap` 滑动窗口按页切分（默认 500/50，分块原理见 TECH_DESIGN §5）；
+- MySQL 三表 `knowledge_bases` / `documents` / `chunks`，ORM 启动自动建库（建表 DDL 见 `sql/schema.sql`）；
+- 上传全链路单事务落库（元数据 + 分块），响应新增 `chunk_count`；连接池 `pre_ping/recycle/max_overflow`。
 
-#### 阶段交付物
+### 8.3 第三阶段：Embedding + Milvus 向量入库（✅ 2026-08-27）
 
-- [x] 目录结构（见阶段讲解输出）
-- [x] 接口文档（见阶段讲解输出）
-- [x] curl 测试命令（见阶段讲解输出）
-- [x] 本模块设计思路讲解（见阶段讲解输出）
-- [x] 下一阶段改造扩展点（见阶段讲解输出）
-
-### 8.2 第二阶段：文本分块 + MySQL 元数据存储（✅ 2026-08-21）
-
-- ✅ 固定 `chunk_size` + `overlap` 重叠滑动窗口，参数走 .env 配置（默认 500/50）。
-- ✅ 讲解 chunk 大小、overlap 各自作用与调参思路（见本阶段讲解输出）。
-- ✅ MySQL 三表结构落地：`knowledge_bases` / `documents` / `chunks`（SQLAlchemy 2.x ORM，
-  启动时自动建库建表；`chunks.vector_id` 预留为 NULL，第三阶段写入 Milvus 向量 id）。
-- ✅ 上传全链路接入：上传 → 解析 → 清洗 → 分块（按页携带页码）→ 元数据+分块单事务落库；
-  响应新增 `chunk_count` 字段。
-- ✅ 连接池配置：pool_pre_ping / pool_recycle / max_overflow；MySQL 不可用时服务降级启动。
-
-**三表建表 SQL（与实际数据库一致的权威版本；已按此设计建表，`init_db()` 的 `create_all` 只在表不存在时创建，不会改动已存在的表）**
-
-```sql
--- 知识库表：文档的顶层容器
-CREATE TABLE knowledge_bases (
-  id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-  name            VARCHAR(64)  NOT NULL UNIQUE COMMENT '知识库名称',
-  description     VARCHAR(255) NULL COMMENT '描述',
-  owner_id        INT NULL COMMENT '所属用户ID',
-  embedding_model VARCHAR(64)  NULL COMMENT '嵌入模型名称',
-  chunk_strategy  VARCHAR(32)  NULL COMMENT '分块策略(fixed/semantic/sentence)',
-  chunk_size      INT NULL COMMENT '分块大小(字符数)',
-  chunk_overlap   INT NULL COMMENT '分块重叠(字符数)',
-  doc_count       INT NOT NULL DEFAULT 0 COMMENT '文档数量',
-  status          TINYINT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
-  updated_at      DATETIME NULL COMMENT '更新时间',
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  KEY ix_kb_owner_id (owner_id),
-  KEY ix_kb_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库（对应一个文件夹，是文档的顶层容器）';
-
--- 文档表：上传文件的元数据记录
-CREATE TABLE documents (
-  id                INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-  kb_id             INT NULL COMMENT '知识库ID',
-  file_id           VARCHAR(64)  NOT NULL UNIQUE COMMENT '上传返回的文件ID（uuid存储名）',
-  original_filename VARCHAR(255) NOT NULL COMMENT '原始文件名',
-  file_type         VARCHAR(32)  NULL COMMENT '文件类型(pdf/docx/txt/md等)',
-  file_size         BIGINT       NOT NULL COMMENT '文件大小（字节）',
-  char_count        INT NOT NULL COMMENT '清洗后总字符数',
-  chunk_count       INT NOT NULL COMMENT '分块数量',
-  status            TINYINT NOT NULL DEFAULT 0 COMMENT '处理状态: 0-待解析 1-解析中 2-解析完成 3-失败',
-  parse_error       TEXT NULL COMMENT '解析失败原因',
-  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  updated_at        DATETIME NULL COMMENT '更新时间',
-  KEY kb_id (kb_id),
-  KEY ix_doc_status (status),
-  KEY ix_doc_file_type (file_type),
-  CONSTRAINT fk_documents_kb FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档（对应一个上传的文件，属于某个知识库）';
-
--- 分块表：检索最小单元，与 Milvus 向量一一对应
-CREATE TABLE chunks (
-  id               INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-  doc_id           INT NOT NULL COMMENT '所属文档ID',
-  kb_id            INT NULL COMMENT '知识库ID',
-  chunk_index      INT NOT NULL COMMENT '文档内块编号（从0开始）',
-  content          TEXT NOT NULL COMMENT '块原始文本',
-  token_count      INT NULL COMMENT 'token数量',
-  embedding_status TINYINT NOT NULL DEFAULT 0 COMMENT '嵌入状态: 0-待嵌入 1-已嵌入 2-失败',
-  page_number      INT NOT NULL COMMENT '来源页码（从1开始）',
-  vector_id        VARCHAR(64) NULL COMMENT 'Milvus向量ID（与chunk id一一对应）',
-  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  KEY kb_id (kb_id),
-  KEY ix_chunks_doc_id (doc_id),
-  KEY ix_chunks_created_at (created_at),
-  KEY ix_chunk_embedding_status (embedding_status),
-  CONSTRAINT fk_chunks_doc FOREIGN KEY (doc_id) REFERENCES documents(id),
-  CONSTRAINT fk_chunks_kb  FOREIGN KEY (kb_id)  REFERENCES knowledge_bases(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='检索片段（文档切分后的chunk，是检索和嵌入的最小单元）';
-```
-
-- ⚠️ 待办（后续阶段）：文档/知识库管理接口（第四阶段）；Alembic 迁移替代 create_all（第七阶段）。
-
-### 8.3 第三阶段：Embedding + Milvus 向量入库（✅ 已完成）
-
-- ✅ 敲定 embedding 模型 bge-m3（1024 维，见 6.2），创建 Milvus collection。
-- ✅ 文档入库：分块 → 向量化 → 双写 MySQL + Milvus（见 6.3），失败补偿删除。
-- ✅ 本地加载 bge-m3 权重（`EMBEDDING_MODEL` 指向本地路径），`EMBEDDING_DEVICE=cuda` GPU 推理。
+- **bge-m3**（1024 维）本地权重加载，GPU（cuda）推理（懒加载 + 单例）；
+- Milvus collection + `vector_service`（主键 = chunk id，COSINE + HNSW）；
+- 入库双写 MySQL + Milvus 并补偿删除（先 MySQL 落库拿 id → 再写 Milvus → 回填 vector_id）；Milvus docker-compose 部署。
 
 ### 8.4 第四阶段：知识库管理接口（✅ 2026-08-28）
 
-- ✅ 知识库增删查：`POST/GET/DELETE /api/v1/kbs`，`GET /api/v1/kbs/{id}`（name 唯一、Pydantic 强校验）；
-- ✅ 文档删除：`DELETE /api/v1/documents/{file_id}`，级联清理 Milvus 向量 + MySQL chunks/documents + 磁盘文件；
-- ✅ 知识库删除：级联清理其下所有文档（复用 `purge_document` 逐文档清理）；
-- ✅ 上传挂知识库：`/upload?kb_id=` 可选参数，入库写 documents.kb_id / chunks.kb_id；
-- ✅ 级联顺序要点：先 Milvus → 再 MySQL 子表（chunks）→ 再父表（documents/知识库）→ 最后磁盘文件；
-  批量 `Query.delete()` 不触发 ORM 级联，必须显式先删子表；
-- ✅ 真实环境验证：建库/去重(1003)/列表带 doc_count/详情带文档/删文档级联/删库级联/各类 1002 错误场景全部通过；
-- ⚠️ 待办：Milvus 删除异步生效需理解 flush/compaction 语义；生产建议 Alembic（第七阶段）。
+- 知识库增删查（name 唯一）+ 文档删除级联（Milvus 向量 → MySQL chunks → documents → 磁盘）+ 上传挂 `kb_id`；
+- 级联顺序要点：先删 Milvus、再子表、后父表——批量 `Query.delete()` 不触发 ORM 关系级联，须显式排序（详见 TECH_DESIGN §10）。
 
-### 8.5 第五阶段：RAG 问答接口（✅ 2026-08-28）
+### 8.5 第五阶段：RAG 问答接口 + 前端单页（✅ 2026-09-01）
 
-- ✅ 大模型接入：DeepSeek 官方 API（OpenAI 兼容），`deepseek-v4-flash`，httpx 手动解析 SSE；
-- ✅ 完整链路：问题向量化 → Milvus 召回 top-k → 相似度阈值过滤 → 回查 MySQL 溯源（文档名/原文/页码）→ 拼上下文 → 流式生成；
-- ✅ SSE 协议（6.4）：`start`（溯源）→ `delta`（逐 token 回答）→ `done`（code/msg/完整回答）；
-- ✅ 防幻觉双保险：`RAG_MIN_SIMILARITY` 阈值过滤弱匹配 + 系统提示词约束"只依据资料、无据答未找到"；
-- ✅ 流式容错：LLM 超时/非200 记完整堆栈，流中断发错误 `done` 事件收尾，避免连接悬挂；
-- ✅ 真实验证：相关问题正确回答带 [来源1] 溯源；无关问题返回"资料中未找到相关信息"；
-- ⚠️ 待办（第六阶段）：token 输入长度校验、LLM 重试、限流、全链路日志。
-
-#### 前端页面设计（第五阶段配套，✅ 单页已实现 2026-08-28，随第六阶段微调）
-
-**技术选型**：单页 HTML + 原生 JS（无构建工具），由 FastAPI 以静态文件同源托管（`app/static/index.html`，挂载 `/`），无 CORS 问题。
-
-**三个 Tab（已实现）**：
-
-| 页面 | 功能 | 调用接口 |
-|---|---|---|
-| 知识库管理 | 新建 / 列表(文档数) / 删除(带确认) | `POST/GET/DELETE /api/v1/kbs` |
-| 文档上传 | 选择知识库 + 上传 + 显示解析结果(字符数/分块数/预览) | `POST /api/v1/documents/upload?kb_id=` |
-| RAG 问答 | 选择检索范围(全部/指定库) + SSE 流式回答 + 溯源卡片 | `POST /api/v1/chat`（SSE） |
-
-**实现要点**：
-- SSE 用 `fetch` + `ReadableStream` 解析（POST 带 JSON body 无法用 EventSource），按 `\n\n` 分帧、解析 `event:/data:` 行；
-- `start` 事件渲染溯源卡片（文档名/页码/相似度/原文），`delta` 逐 token 追加（带闪烁光标），`done` 收尾（错误时展示 msg）；
-- 前端挂载在**所有路由之后**（Starlette 按注册顺序匹配，放最后才不遮蔽 `/health`、`/docs`、`/api/v1/*`——真实踩过）；
-- 上传/问答按钮 loading 态防重复提交；知识库下拉全局共享（删除后联动刷新）。
+- 问答链路：问题向量化 → Milvus 召回 top-k → 相似度阈值过滤 → MySQL 溯源 → 拼上下文 → SSE 流式（`start`/`delta`/`done`）；DeepSeek 官方 API（httpx 手动解析 SSE）；防幻觉双保险 + 流式容错；
+- 配前端单页：知识库管理 / 文档上传 / RAG 问答三个 Tab（fetch + ReadableStream 消费 SSE，FastAPI 同源托管）；
+- 对账 + 补偿（v1.6）：查询兜底判定"向量丢失"自动后台重建（`vector_rebuild_service`），用于修复"MySQL 有记录但 Milvus 没向量"。
 
 ### 8.6 第六阶段：工程稳定性优化（预留）
 
@@ -378,5 +235,6 @@ CREATE TABLE chunks (
 | 2026-09-01 | v1.4 | 第五阶段完成：RAG 问答接口（问题向量化→召回→阈值过滤→溯源→拼上下文→SSE 流式生成）；DeepSeek 官方 API（deepseek-v4-flash，httpx 手动解析 SSE）；SSE 协议 start/delta/done；防幻觉双保险（min_similarity + 系统提示词） | 完成第五阶段；真实验证相关问题/无关问题均正确 |
 | 2026-09-01 | v1.5 | 前端单页实现：`app/static/index.html` 三个 Tab（知识库管理/文档上传/RAG 问答），fetch+ReadableStream 消费 SSE；FastAPI 同源托管（挂载需在所有路由之后，修复遮蔽 /health 问题） | 配套前端落地，便于可视化测试 |
 | 2026-09-01 | v1.6 | 对账+补偿机制落地（6.5）：① 重建逻辑抽为 `vector_rebuild_service.py` 可调度函数（CLI/定时器/查询兜底复用）；② 查询兜底分级——召回空但有文档→自动后台重建+明确提示，真没文档→提示上传，正常无关→答未找到；修复 `ensure_collection` 进程内缓存导致集合丢失后不重建的 bug | 解决"MySQL 有记录但 Milvus 没向量"的一致性与用户体验问题 |
+| 2026-09-09 | v1.7 | 文档结构调整：前端内容并入第五阶段；「核心设计决策」精简为指向 TECH_DESIGN.md 的指引（避免重复维护）；三表 DDL 抽离至 `sql/schema.sql`；技术栈/分层架构/目录结构同步（补前端、DeepSeek API、static/scripts/sql）；各阶段明细压缩为结果概览 | 前端已实现，文档与 TECH_DESIGN 去重、SQL 独立成文件、计划文档简化 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

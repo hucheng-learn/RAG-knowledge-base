@@ -19,6 +19,3 @@ deploy/volumes/
 .idea/
 .vscode/
 .DS_Store
-
-# 测试文件
-test/
