@@ -163,11 +163,26 @@
 
 documents + chunks **同一事务**：`add(doc) → flush()（拿自增 id）→ 循环 add(chunk) → commit()`，失败 `rollback()`。保证不会出现"有文档没分块"的中间状态。
 
-### 6.5 双写一致性（MySQL + Milvus，第三阶段落实）
+### 6.5 双写一致性（MySQL + Milvus，第三阶段落实，对账机制 2026-09-01 落地）
 
 - 入库：**先 MySQL 落库**（拿到 chunk_id）→ **再写 Milvus**（向量 id 与 chunk_id 一一对应）→ 任一步失败**补偿删除**；
 - 删除：先删 Milvus 向量 → 再删 MySQL 记录（或软删 + 定时清理兜底）；
 - **面试必答**："MySQL 有记录但 Milvus 没向量"→ 对账任务（定期比对两边 id，差异补偿）。
+
+**对账+补偿的三层时机（面试讲这套）**：
+
+```
+① 写路径（实时）：入库 Milvus 失败 → _compensate 回滚 MySQL
+   （生产进阶：不删 MySQL，改置 chunks.embedding_status=2 → 重试队列）
+② 读路径（查询兜底）：召回为空但有文档 → 判定向量丢失 →
+   后台触发 rebuild_documents(doc_ids) + 明确提示（已实现）
+③ 后台定时：调度器定期比对 MySQL(embedding_status=1) 与 Milvus id 集合，
+   差异 doc → 调 rebuild_documents（第六阶段接 APScheduler）
+```
+
+- 核心逻辑已抽为 `vector_rebuild_service.rebuild_documents(doc_ids)`（幂等、纯增量），CLI（`scripts/rebuild_vectors.py`）、定时器、查询兜底三方复用；
+- 查询兜底的关键判定：**Milvus 检索只要 scope 里有向量就必返回 top_k**，因此"召回完全为空 + MySQL 有文档"必然等于"向量全丢"，不会误判；
+- 教训：Milvus 集合可能在服务运行期被外部删除，`ensure_collection` **不能做进程内"已就绪"缓存**，必须每次真查（真实踩过：缓存标志骗过检查导致持续 collection not found）。
 
 ### 6.6 字段设计：为异步管线预留的状态字段（第四阶段对齐）
 

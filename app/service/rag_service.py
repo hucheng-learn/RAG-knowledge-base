@@ -8,6 +8,7 @@
 由 routers/chat.py 编码成 text/event-stream。
 """
 
+import asyncio
 from typing import AsyncIterator, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -18,11 +19,16 @@ from app.models.orm.chunk import Chunk
 from app.models.orm.document import Document
 from app.service.embedding_service import get_embedding_service
 from app.service.llm_service import stream_chat
+from app.service.vector_rebuild_service import rebuild_documents
 from app.service.vector_service import ensure_collection, search as milvus_search
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+# 后台任务持有集：asyncio.create_task 的任务不持引用会被 GC 回收，
+# 用 set 持有 + 完成回调移除（fire-and-forget 的规范做法）
+_background_tasks: set = set()
 
 # 系统提示词：约束模型只依据检索上下文作答，禁止编造
 _SYSTEM_PROMPT = (
@@ -66,21 +72,52 @@ async def rag_answer(
         doc_ids = await run_in_threadpool(_get_kb_doc_ids, kb_id)
     hits = await run_in_threadpool(milvus_search, qv, top_k, doc_ids)
 
-    # 2b. 相似度阈值过滤：Milvus 总是返回 top_k 条，即使相似度很低；
-    #     低于阈值的弱匹配视为"无相关"，避免模型答非所问（减少幻觉）
+    # 2c. 召回完全为空（Milvus 只要 scope 里有向量就必返回 top_k）→ 分级兜底：
+    if not hits:
+        yield {"event": "start", "data": []}
+        # ① 范围内有文档但一条向量都没召回到 → 大概率向量数据丢失
+        #    → 后台触发重建 + 明确提示（而不是傻答"未检索到"）
+        if await run_in_threadpool(_has_docs_in_scope, kb_id):
+            scope_doc_ids = doc_ids
+            if scope_doc_ids is None:
+                scope_doc_ids = await run_in_threadpool(_get_all_doc_ids)
+            _spawn_rebuild(scope_doc_ids)
+            yield {
+                "event": "done",
+                "data": {
+                    "code": 0,
+                    "msg": "检测到知识库向量数据异常，已自动触发重建，请稍后重试提问",
+                    "answer": "",
+                    "token_count": 0,
+                },
+            }
+            return
+        # ② 范围内本来就没文档 → 提示先上传
+        yield {
+            "event": "done",
+            "data": {
+                "code": 0,
+                "msg": "该知识库还没有文档，请先上传相关文档",
+                "answer": "",
+                "token_count": 0,
+            },
+        }
+        return
+
+    # 2d. 相似度阈值过滤：低于阈值的弱匹配视为"无相关"（向量存在但问题无关）
     hits = [h for h in hits if h["distance"] >= settings.rag_min_similarity]
 
     # 3. 溯源：回查 MySQL 拿原文 / 页码 / 文档名
     trace = await run_in_threadpool(_build_trace, hits)
 
-    # 4a. 无召回：直接结束，不调大模型
+    # 4a. 阈值过滤后为空 → 有向量但确实不相关（正常"未检索到"，非异常）
     if not trace:
         yield {"event": "start", "data": []}
         yield {
             "event": "done",
             "data": {
                 "code": 0,
-                "msg": "未检索到相关资料，请换个问法或先上传相关文档",
+                "msg": "未检索到相关资料，请换个问法试试",
                 "answer": "",
                 "token_count": 0,
             },
@@ -118,6 +155,51 @@ def _get_kb_doc_ids(kb_id: int) -> list:
         return [r[0] for r in rows]
     finally:
         session.close()
+
+
+def _get_all_doc_ids() -> list:
+    """取全部文档 id（全局检索兜底重建用）。"""
+    session = get_session()
+    try:
+        rows = session.query(Document.id).all()
+        return [r[0] for r in rows]
+    finally:
+        session.close()
+
+
+def _has_docs_in_scope(kb_id: Optional[int]) -> bool:
+    """范围内（指定知识库或全部文档）是否存在文档记录。
+
+    召回为空时用它区分：「向量丢了」vs「本来就没内容」。
+    """
+    session = get_session()
+    try:
+        q = session.query(Document.id)
+        if kb_id is not None:
+            q = q.filter(Document.kb_id == kb_id)
+        return bool(session.query(q.exists()).scalar())
+    finally:
+        session.close()
+
+
+def _spawn_rebuild(doc_ids: list) -> None:
+    """后台触发向量重建（fire-and-forget，不阻塞当前问答流）。
+
+    生产形态：这里只是进程内后台任务；接入 Celery/任务队列后
+    改为投递消息（第六阶段），本函数保持同样的调用面。
+    """
+    task = asyncio.create_task(_run_rebuild(doc_ids))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _run_rebuild(doc_ids: list) -> None:
+    """后台执行重建并记日志（异常不抛出，避免 task 报错刷屏）。"""
+    try:
+        n = await run_in_threadpool(rebuild_documents, doc_ids)
+        logger.info("后台向量重建完成: doc_ids=%s chunks=%d", doc_ids, n)
+    except Exception:
+        logger.exception("后台向量重建失败: doc_ids=%s", doc_ids)
 
 
 def _build_trace(hits: list) -> list:

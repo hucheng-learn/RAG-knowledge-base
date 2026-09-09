@@ -26,7 +26,6 @@ except ImportError:  # pragma: no cover
     _IndexParams = None
 
 _client = None
-_collection_ready = False
 
 
 def _build_index_params():
@@ -58,10 +57,13 @@ def get_client() -> MilvusClient:
 
 
 def ensure_collection() -> None:
-    """确保 collection 存在（幂等）：不存在则按 schema 创建。"""
-    global _collection_ready
-    if _collection_ready:
-        return
+    """确保 collection 存在（幂等）：不存在则按 schema 创建并加载。
+
+    注意：**不做进程内"已就绪"缓存**——Milvus 集合可能在服务运行期间
+    被外部删除或数据卷重置丢失（如 Docker 重启），缓存标志会骗过检查、
+    导致后续操作全部报 collection not found（本项目真实踩过）。
+    has_collection 是轻量 RPC（毫秒级），每次调用真查一次换正确性。
+    """
     settings = get_settings()
     client = get_client()
     if not client.has_collection(settings.milvus_collection):
@@ -85,7 +87,6 @@ def ensure_collection() -> None:
     # 集合存在但可能未加载：Milvus 的 search/query 必须在 load 之后，
     # 这里统一幂等加载（重复 load 是安全的）
     client.load_collection(settings.milvus_collection)
-    _collection_ready = True
 
 
 def insert_chunk_vectors(records: list) -> None:
