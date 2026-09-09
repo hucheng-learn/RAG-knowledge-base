@@ -1,0 +1,93 @@
+{
+  "project": {
+    "deviceType": "desktop",
+    "resolvedLane": "free_exploration",
+    "pages": [
+      {
+        "nodeId": "page-upload",
+        "htmlSrc": "pages/upload.html",
+        "title": "上传文档到知识库",
+        "pageType": "task-driven",
+        "viewportMode": "document-scroll",
+        "writeMode": "SkeletonMainAtomic"
+      }
+    ],
+    "selectedIntentWorkflowRead": true,
+    "contextRequirementsLoaded": [
+      {"path": "shared-runtime/runtime-boundaries/lane-runtime-contracts.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "shared-runtime/agent-dispatch-runtime/lane-dispatch-index.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "delivery-quality/page-rendering-quality-gate.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "delivery-quality/design-artifact-validation.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "delivery-quality/delivery-evidence-contract.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "visual-experience/visual-experience-guidelines.md", "readStatus": "loaded", "bodyRead": true}
+    ],
+    "contextReadScope": {
+      "mainAgent": {
+        "forbiddenReads": ["other intent-workflows/**", "Sub-Agent implementation files before dispatch"]
+      },
+      "pageSubAgent": {
+        "allowedReads": ["current lane page runtime guide", "current Page Packet", "supplementaryReads[] only"],
+        "forbiddenReads": ["SKILL.md full re-read", "other intent-workflows/**", "full runtime-orchestration-summary.json unless explicitly sliced"]
+      },
+      "readScopeLedgerWriter": "shared-runtime/deterministic-tooling/build-page-dispatch-manifest.mjs"
+    },
+    "validationRunDiscipline": {
+      "maxFullValidationRuns": 2,
+      "softWarningsTriggerRepair": false,
+      "blockingRepairMode": "targeted-once",
+      "forbiddenRepairTriggers": ["soft-warning-only", "provenance-warning-only", "style-warning-only"]
+    },
+    "lowValueCallWatchdog": {
+      "applies": true,
+      "noProgressSignals": ["no_tool_call", "no_artifact_diff", "no_structured_decision"],
+      "noProgressNextAction": "enter_readiness_or_blocked_summary"
+    },
+    "cssPreflightEvidence": {
+      "applies": true,
+      "status": "passed",
+      "command": "node {SKILL_DIR}/shared-runtime/deterministic-tooling/apply-html-head-contract.mjs colors_and_type.css .preflight/preflight.html --title=\"Preflight\" --lang=zh-CN --prefix=rag",
+      "brandPrefix": "rag",
+      "checks": {
+        "themeVars": "present",
+        "semanticTokenFallback": "present",
+        "themeInline": "present",
+        "tailwindCdn": "present",
+        "htmlClass": "present",
+        "semanticMappings": "resolved"
+      },
+      "retryCount": 0,
+      "blockingReason": null
+    },
+    "intentProfile": {
+      "caseFamily": "free_exploration",
+      "routingReason": "User requested redesign of upload document UI, no existing .design project, no Design Library, single page task-driven UI"
+    },
+    "creativeRecipe": {
+      "businessTone": "现代专业、友好易用的 SaaS 工具风格",
+      "layoutArchetype": "居中卡片式任务流布局",
+      "visualSignature": "清爽蓝紫主色 + 柔和阴影 + 圆角卡片 + 拖拽上传区",
+      "densityTarget": "balanced",
+      "avoidOneThing": "避免信息密集堆砌，强化视觉层次和操作引导"
+    },
+    "defaultDeliverableVisibility": {
+      "applies": true,
+      "requiredVisibleRegions": [
+        {
+          "htmlSrc": "pages/upload.html",
+          "selector": "#upload-section",
+          "label": "上传区域",
+          "source": "user requirement"
+        },
+        {
+          "htmlSrc": "pages/upload.html",
+          "selector": "#result-section",
+          "label": "解析结果",
+          "source": "user requirement"
+        }
+      ],
+      "hiddenAllowed": []
+    },
+    "expectedDispatches": [],
+    "dispatchPreflightManifest": []
+  }
+}

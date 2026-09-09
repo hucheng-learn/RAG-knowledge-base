@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preflight</title>
+    <style id="theme-vars">
+:root {
+  /* Brand prefix: rag */
+  --rag-background: #f8fafc;
+  --rag-foreground: #0f172a;
+  --rag-card: #ffffff;
+  --rag-card-foreground: #0f172a;
+  --rag-popover: #ffffff;
+  --rag-popover-foreground: #0f172a;
+  --rag-primary: #6366f1;
+  --rag-primary-foreground: #ffffff;
+  --rag-secondary: #f1f5f9;
+  --rag-secondary-foreground: #334155;
+  --rag-muted: #f1f5f9;
+  --rag-muted-foreground: #64748b;
+  --rag-accent: #eef2ff;
+  --rag-accent-foreground: #4338ca;
+  --rag-destructive: #ef4444;
+  --rag-destructive-foreground: #ffffff;
+  --rag-border: #e2e8f0;
+  --rag-input: #e2e8f0;
+  --rag-ring: #6366f1;
+
+  /* State colors */
+  --rag-success: #10b981;
+  --rag-success-foreground: #ffffff;
+  --rag-warning: #f59e0b;
+  --rag-warning-foreground: #ffffff;
+  --rag-info: #3b82f6;
+  --rag-info-foreground: #ffffff;
+
+  /* Radius scale */
+  --rag-radius-sm: 6px;
+  --rag-radius-md: 10px;
+  --rag-radius-lg: 14px;
+  --rag-radius-xl: 20px;
+
+  /* Typography */
+  --rag-font-sans: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+}
+
+html {
+  font-family: var(--rag-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--rag-background);
+  color: var(--rag-foreground);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--rag-background);
+    --color-foreground: var(--rag-foreground);
+    --color-card: var(--rag-card);
+    --color-card-foreground: var(--rag-card-foreground);
+    --color-popover: var(--rag-popover);
+    --color-popover-foreground: var(--rag-popover-foreground);
+    --color-primary: var(--rag-primary);
+    --color-primary-foreground: var(--rag-primary-foreground);
+    --color-secondary: var(--rag-secondary);
+    --color-secondary-foreground: var(--rag-secondary-foreground);
+    --color-muted: var(--rag-muted);
+    --color-muted-foreground: var(--rag-muted-foreground);
+    --color-accent: var(--rag-accent);
+    --color-accent-foreground: var(--rag-accent-foreground);
+    --color-destructive: var(--rag-destructive);
+    --color-destructive-foreground: var(--rag-destructive-foreground);
+    --color-border: var(--rag-border);
+    --color-input: var(--rag-input);
+    --color-ring: var(--rag-ring);
+    --radius-sm: var(--rag-radius-sm);
+    --radius-md: var(--rag-radius-md);
+    --radius-lg: var(--rag-radius-lg);
+    --radius-xl: var(--rag-radius-xl);
+  }
+  @layer base {
+    body { background: var(--rag-background); color: var(--rag-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--rag-background); }
+      .text-background { color: var(--rag-background); }
+      .border-background { border-color: var(--rag-background); }
+      .ring-background { --tw-ring-color: var(--rag-background); }
+      .bg-foreground { background-color: var(--rag-foreground); }
+      .text-foreground { color: var(--rag-foreground); }
+      .border-foreground { border-color: var(--rag-foreground); }
+      .ring-foreground { --tw-ring-color: var(--rag-foreground); }
+      .bg-card { background-color: var(--rag-card); }
+      .text-card { color: var(--rag-card); }
+      .border-card { border-color: var(--rag-card); }
+      .ring-card { --tw-ring-color: var(--rag-card); }
+      .bg-card-foreground { background-color: var(--rag-card-foreground); }
+      .text-card-foreground { color: var(--rag-card-foreground); }
+      .border-card-foreground { border-color: var(--rag-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--rag-card-foreground); }
+      .bg-popover { background-color: var(--rag-popover); }
+      .text-popover { color: var(--rag-popover); }
+      .border-popover { border-color: var(--rag-popover); }
+      .ring-popover { --tw-ring-color: var(--rag-popover); }
+      .bg-popover-foreground { background-color: var(--rag-popover-foreground); }
+      .text-popover-foreground { color: var(--rag-popover-foreground); }
+      .border-popover-foreground { border-color: var(--rag-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--rag-popover-foreground); }
+      .bg-primary { background-color: var(--rag-primary); }
+      .text-primary { color: var(--rag-primary); }
+      .border-primary { border-color: var(--rag-primary); }
+      .ring-primary { --tw-ring-color: var(--rag-primary); }
+      .bg-primary-foreground { background-color: var(--rag-primary-foreground); }
+      .text-primary-foreground { color: var(--rag-primary-foreground); }
+      .border-primary-foreground { border-color: var(--rag-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--rag-primary-foreground); }
+      .bg-secondary { background-color: var(--rag-secondary); }
+      .text-secondary { color: var(--rag-secondary); }
+      .border-secondary { border-color: var(--rag-secondary); }
+      .ring-secondary { --tw-ring-color: var(--rag-secondary); }
+      .bg-secondary-foreground { background-color: var(--rag-secondary-foreground); }
+      .text-secondary-foreground { color: var(--rag-secondary-foreground); }
+      .border-secondary-foreground { border-color: var(--rag-secondary-foreground); }
+      .ring-secondary-foreground { --tw-ring-color: var(--rag-secondary-foreground); }
+      .bg-muted { background-color: var(--rag-muted); }
+      .text-muted { color: var(--rag-muted); }
+      .border-muted { border-color: var(--rag-muted); }
+      .ring-muted { --tw-ring-color: var(--rag-muted); }
+      .bg-muted-foreground { background-color: var(--rag-muted-foreground); }
+      .text-muted-foreground { color: var(--rag-muted-foreground); }
+      .border-muted-foreground { border-color: var(--rag-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--rag-muted-foreground); }
+      .bg-accent { background-color: var(--rag-accent); }
+      .text-accent { color: var(--rag-accent); }
+      .border-accent { border-color: var(--rag-accent); }
+      .ring-accent { --tw-ring-color: var(--rag-accent); }
+      .bg-accent-foreground { background-color: var(--rag-accent-foreground); }
+      .text-accent-foreground { color: var(--rag-accent-foreground); }
+      .border-accent-foreground { border-color: var(--rag-accent-foreground); }
+      .ring-accent-foreground { --tw-ring-color: var(--rag-accent-foreground); }
+      .bg-destructive { background-color: var(--rag-destructive); }
+      .text-destructive { color: var(--rag-destructive); }
+      .border-destructive { border-color: var(--rag-destructive); }
+      .ring-destructive { --tw-ring-color: var(--rag-destructive); }
+      .bg-destructive-foreground { background-color: var(--rag-destructive-foreground); }
+      .text-destructive-foreground { color: var(--rag-destructive-foreground); }
+      .border-destructive-foreground { border-color: var(--rag-destructive-foreground); }
+      .ring-destructive-foreground { --tw-ring-color: var(--rag-destructive-foreground); }
+      .bg-border { background-color: var(--rag-border); }
+      .text-border { color: var(--rag-border); }
+      .border-border { border-color: var(--rag-border); }
+      .ring-border { --tw-ring-color: var(--rag-border); }
+      .bg-input { background-color: var(--rag-input); }
+      .text-input { color: var(--rag-input); }
+      .border-input { border-color: var(--rag-input); }
+      .ring-input { --tw-ring-color: var(--rag-input); }
+      .bg-ring { background-color: var(--rag-ring); }
+      .text-ring { color: var(--rag-ring); }
+      .border-ring { border-color: var(--rag-ring); }
+      .ring-ring { --tw-ring-color: var(--rag-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+    <main>
+    </main>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

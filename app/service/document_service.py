@@ -67,6 +67,10 @@ async def upload_document(
         if kb_id is not None:
             await run_in_threadpool(_validate_kb, kb_id)
 
+        # 去重：同一知识库下不允许同名文件（避免重复上传造成向量重复、检索重复）
+        if kb_id is not None and upload_file.filename:
+            await run_in_threadpool(_check_duplicate, kb_id, upload_file.filename)
+
         # 解析 + 清洗 + 分块
         extension = get_extension(upload_file.filename or "")
         parser = get_parser(extension)
@@ -264,6 +268,31 @@ def _validate_kb(kb_id: int) -> None:
         exists = session.query(KnowledgeBase.id).filter(KnowledgeBase.id == kb_id).first()
         if exists is None:
             raise BizException(f"知识库不存在: kb_id={kb_id}", code=RespCode.NOT_FOUND)
+    finally:
+        session.close()
+
+
+def _check_duplicate(kb_id: int, original_filename: str) -> None:
+    """同一知识库下不允许同名文件，重复则抛业务异常。
+
+    理由：同名文件通常是同一份内容，重复上传会导致向量库中出现两套相同向量，
+    检索时结果成对重复、浪费 top_k 名额（用户侧表现为「来源1和来源2一模一样」）。
+    """
+    session = get_session()
+    try:
+        exists = (
+            session.query(Document.id)
+            .filter(
+                Document.kb_id == kb_id,
+                Document.original_filename == original_filename,
+            )
+            .first()
+        )
+        if exists is not None:
+            raise BizException(
+                f"该知识库下已存在同名文件: {original_filename}",
+                code=RespCode.BIZ_ERROR,
+            )
     finally:
         session.close()
 

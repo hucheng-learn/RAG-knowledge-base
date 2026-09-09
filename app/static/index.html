@@ -62,6 +62,18 @@
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
   .toolbar select { width: auto; min-width: 160px; }
   .toolbar .spacer { flex: 1; }
+  /* 文档列表弹窗 */
+  .modal-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .5);
+                display: none; align-items: center; justify-content: center; z-index: 100; }
+  .modal-mask.show { display: flex; }
+  .modal { background: var(--card); border-radius: var(--radius); width: min(720px, 92vw);
+           max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+  .modal-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+                display: flex; align-items: center; gap: 10px; }
+  .modal-head h2 { font-size: 15px; margin: 0; flex: 1; }
+  .modal-head .close { background: none; border: none; font-size: 20px; color: var(--muted);
+                       cursor: pointer; padding: 0 6px; }
+  .modal-body { padding: 14px 18px; overflow: auto; }
 </style>
 </head>
 <body>
@@ -138,6 +150,19 @@
   </section>
 </main>
 
+<!-- ============ 文档列表弹窗 ============ -->
+<div class="modal-mask" id="doc-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="doc-modal-title">文档列表</h2>
+      <button class="close" onclick="closeDocModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="doc-modal-body">
+      <div class="empty">加载中…</div>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -209,9 +234,13 @@ async function loadKbs() {
         <td>${esc(k.description || "-")}</td>
         <td>${k.doc_count} 篇</td>
         <td>${k.created_at ? k.created_at.slice(0, 19).replace("T", " ") : ""}</td>
-        <td><button class="danger" onclick="delKb(${k.id}, '${esc(k.name)}')">删除</button></td>
+        <td style="white-space:nowrap">
+          <button class="primary" style="padding:4px 12px;font-size:12px"
+                  onclick="openDocList(${k.id}, '${esc(k.name)}')">文档</button>
+          <button class="danger" onclick="delKb(${k.id}, '${esc(k.name)}')">删除</button>
+        </td>
       </tr>`).join("");
-    el.innerHTML = `<table><tr><th>名称</th><th>描述</th><th>文档数</th><th>创建时间</th><th></th></tr>${rows}</table>`;
+    el.innerHTML = `<table><tr><th>名称</th><th>描述</th><th>文档数</th><th>创建时间</th><th>操作</th></tr>${rows}</table>`;
   } catch (err) { el.innerHTML = `<div class="empty">加载失败：${esc(err.message)}</div>`; }
 }
 
@@ -221,6 +250,63 @@ async function delKb(id, name) {
     const data = await api(`/api/v1/kbs/${id}`, { method: "DELETE" });
     alert(`已删除，级联清理 ${data.deleted_documents} 篇文档`);
     loadKbs(); loadKbOptions();
+  } catch (err) { alert("删除失败：" + err.message); }
+}
+
+/* ========= 知识库 → 文档列表弹窗 ========= */
+
+let _currentKbId = null;
+
+function openDocList(kbId, kbName) {
+  _currentKbId = kbId;
+  document.getElementById("doc-modal-title").textContent = `「${kbName}」的文档`;
+  document.getElementById("doc-modal-body").innerHTML = '<div class="empty">加载中…</div>';
+  document.getElementById("doc-modal").classList.add("show");
+  loadDocList(kbId);
+}
+
+function closeDocModal() {
+  document.getElementById("doc-modal").classList.remove("show");
+}
+
+/* 点击遮罩关闭 */
+document.getElementById("doc-modal").addEventListener("click", (e) => {
+  if (e.target.id === "doc-modal") closeDocModal();
+});
+
+async function loadDocList(kbId) {
+  const body = document.getElementById("doc-modal-body");
+  try {
+    const kb = await api(`/api/v1/kbs/${kbId}`);
+    const docs = kb.documents || [];
+    if (!docs.length) { body.innerHTML = '<div class="empty">该知识库还没有文档，去「文档上传」页上传吧</div>'; return; }
+    const rows = docs.map(d => `
+      <tr>
+        <td title="${esc(d.original_filename)}"><b>${esc(d.original_filename)}</b></td>
+        <td>${formatSize(d.file_size)}</td>
+        <td>${d.chunk_count || 0} 块</td>
+        <td>${d.created_at ? d.created_at.slice(0, 19).replace("T", " ") : ""}</td>
+        <td><button class="danger" onclick="delDoc('${esc(d.file_id)}', '${esc(d.original_filename)}')">删除</button></td>
+      </tr>`).join("");
+    body.innerHTML = `<table><tr><th>文件名</th><th>大小</th><th>分块数</th><th>上传时间</th><th></th></tr>${rows}</table>`;
+  } catch (err) { body.innerHTML = `<div class="empty">加载失败：${esc(err.message)}</div>`; }
+}
+
+function formatSize(bytes) {
+  if (!bytes && bytes !== 0) return "-";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1024 / 1024).toFixed(2) + " MB";
+}
+
+async function delDoc(fileId, fileName) {
+  if (!confirm(`确认删除文档「${fileName}」？\n其向量、数据库记录与文件都会被删除！`)) return;
+  try {
+    await api(`/api/v1/documents/${fileId}`, { method: "DELETE" });
+    alert("已删除");
+    loadDocList(_currentKbId);
+    loadKbs();   // 同步刷新文档数
+    loadKbOptions();
   } catch (err) { alert("删除失败：" + err.message); }
 }
 

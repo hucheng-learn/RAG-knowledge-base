@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>上传文档到知识库</title>
+    <style id="theme-vars">
+:root {
+  /* Brand prefix: rag */
+  --rag-background: #f8fafc;
+  --rag-foreground: #0f172a;
+  --rag-card: #ffffff;
+  --rag-card-foreground: #0f172a;
+  --rag-popover: #ffffff;
+  --rag-popover-foreground: #0f172a;
+  --rag-primary: #6366f1;
+  --rag-primary-foreground: #ffffff;
+  --rag-secondary: #f1f5f9;
+  --rag-secondary-foreground: #334155;
+  --rag-muted: #f1f5f9;
+  --rag-muted-foreground: #64748b;
+  --rag-accent: #eef2ff;
+  --rag-accent-foreground: #4338ca;
+  --rag-destructive: #ef4444;
+  --rag-destructive-foreground: #ffffff;
+  --rag-border: #e2e8f0;
+  --rag-input: #e2e8f0;
+  --rag-ring: #6366f1;
+
+  /* State colors */
+  --rag-success: #10b981;
+  --rag-success-foreground: #ffffff;
+  --rag-warning: #f59e0b;
+  --rag-warning-foreground: #ffffff;
+  --rag-info: #3b82f6;
+  --rag-info-foreground: #ffffff;
+
+  /* Radius scale */
+  --rag-radius-sm: 6px;
+  --rag-radius-md: 10px;
+  --rag-radius-lg: 14px;
+  --rag-radius-xl: 20px;
+
+  /* Typography */
+  --rag-font-sans: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+}
+
+html {
+  font-family: var(--rag-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--rag-background);
+  color: var(--rag-foreground);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--rag-background);
+    --color-foreground: var(--rag-foreground);
+    --color-card: var(--rag-card);
+    --color-card-foreground: var(--rag-card-foreground);
+    --color-popover: var(--rag-popover);
+    --color-popover-foreground: var(--rag-popover-foreground);
+    --color-primary: var(--rag-primary);
+    --color-primary-foreground: var(--rag-primary-foreground);
+    --color-secondary: var(--rag-secondary);
+    --color-secondary-foreground: var(--rag-secondary-foreground);
+    --color-muted: var(--rag-muted);
+    --color-muted-foreground: var(--rag-muted-foreground);
+    --color-accent: var(--rag-accent);
+    --color-accent-foreground: var(--rag-accent-foreground);
+    --color-destructive: var(--rag-destructive);
+    --color-destructive-foreground: var(--rag-destructive-foreground);
+    --color-border: var(--rag-border);
+    --color-input: var(--rag-input);
+    --color-ring: var(--rag-ring);
+    --radius-sm: var(--rag-radius-sm);
+    --radius-md: var(--rag-radius-md);
+    --radius-lg: var(--rag-radius-lg);
+    --radius-xl: var(--rag-radius-xl);
+  }
+  @layer base {
+    body { background: var(--rag-background); color: var(--rag-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--rag-background); }
+      .text-background { color: var(--rag-background); }
+      .border-background { border-color: var(--rag-background); }
+      .ring-background { --tw-ring-color: var(--rag-background); }
+      .bg-foreground { background-color: var(--rag-foreground); }
+      .text-foreground { color: var(--rag-foreground); }
+      .border-foreground { border-color: var(--rag-foreground); }
+      .ring-foreground { --tw-ring-color: var(--rag-foreground); }
+      .bg-card { background-color: var(--rag-card); }
+      .text-card { color: var(--rag-card); }
+      .border-card { border-color: var(--rag-card); }
+      .ring-card { --tw-ring-color: var(--rag-card); }
+      .bg-card-foreground { background-color: var(--rag-card-foreground); }
+      .text-card-foreground { color: var(--rag-card-foreground); }
+      .border-card-foreground { border-color: var(--rag-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--rag-card-foreground); }
+      .bg-popover { background-color: var(--rag-popover); }
+      .text-popover { color: var(--rag-popover); }
+      .border-popover { border-color: var(--rag-popover); }
+      .ring-popover { --tw-ring-color: var(--rag-popover); }
+      .bg-popover-foreground { background-color: var(--rag-popover-foreground); }
+      .text-popover-foreground { color: var(--rag-popover-foreground); }
+      .border-popover-foreground { border-color: var(--rag-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--rag-popover-foreground); }
+      .bg-primary { background-color: var(--rag-primary); }
+      .text-primary { color: var(--rag-primary); }
+      .border-primary { border-color: var(--rag-primary); }
+      .ring-primary { --tw-ring-color: var(--rag-primary); }
+      .bg-primary-foreground { background-color: var(--rag-primary-foreground); }
+      .text-primary-foreground { color: var(--rag-primary-foreground); }
+      .border-primary-foreground { border-color: var(--rag-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--rag-primary-foreground); }
+      .bg-secondary { background-color: var(--rag-secondary); }
+      .text-secondary { color: var(--rag-secondary); }
+      .border-secondary { border-color: var(--rag-secondary); }
+      .ring-secondary { --tw-ring-color: var(--rag-secondary); }
+      .bg-secondary-foreground { background-color: var(--rag-secondary-foreground); }
+      .text-secondary-foreground { color: var(--rag-secondary-foreground); }
+      .border-secondary-foreground { border-color: var(--rag-secondary-foreground); }
+      .ring-secondary-foreground { --tw-ring-color: var(--rag-secondary-foreground); }
+      .bg-muted { background-color: var(--rag-muted); }
+      .text-muted { color: var(--rag-muted); }
+      .border-muted { border-color: var(--rag-muted); }
+      .ring-muted { --tw-ring-color: var(--rag-muted); }
+      .bg-muted-foreground { background-color: var(--rag-muted-foreground); }
+      .text-muted-foreground { color: var(--rag-muted-foreground); }
+      .border-muted-foreground { border-color: var(--rag-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--rag-muted-foreground); }
+      .bg-accent { background-color: var(--rag-accent); }
+      .text-accent { color: var(--rag-accent); }
+      .border-accent { border-color: var(--rag-accent); }
+      .ring-accent { --tw-ring-color: var(--rag-accent); }
+      .bg-accent-foreground { background-color: var(--rag-accent-foreground); }
+      .text-accent-foreground { color: var(--rag-accent-foreground); }
+      .border-accent-foreground { border-color: var(--rag-accent-foreground); }
+      .ring-accent-foreground { --tw-ring-color: var(--rag-accent-foreground); }
+      .bg-destructive { background-color: var(--rag-destructive); }
+      .text-destructive { color: var(--rag-destructive); }
+      .border-destructive { border-color: var(--rag-destructive); }
+      .ring-destructive { --tw-ring-color: var(--rag-destructive); }
+      .bg-destructive-foreground { background-color: var(--rag-destructive-foreground); }
+      .text-destructive-foreground { color: var(--rag-destructive-foreground); }
+      .border-destructive-foreground { border-color: var(--rag-destructive-foreground); }
+      .ring-destructive-foreground { --tw-ring-color: var(--rag-destructive-foreground); }
+      .bg-border { background-color: var(--rag-border); }
+      .text-border { color: var(--rag-border); }
+      .border-border { border-color: var(--rag-border); }
+      .ring-border { --tw-ring-color: var(--rag-border); }
+      .bg-input { background-color: var(--rag-input); }
+      .text-input { color: var(--rag-input); }
+      .border-input { border-color: var(--rag-input); }
+      .ring-input { --tw-ring-color: var(--rag-input); }
+      .bg-ring { background-color: var(--rag-ring); }
+      .text-ring { color: var(--rag-ring); }
+      .border-ring { border-color: var(--rag-ring); }
+      .ring-ring { --tw-ring-color: var(--rag-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+    <main class="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-2xl mx-auto space-y-8">
+
+            <!-- 页面标题 -->
+            <div class="text-center space-y-3">
+                <div class="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-accent text-accent-foreground mb-2">
+                    <i data-lucide="upload-cloud" class="w-7 h-7"></i>
+                </div>
+                <h1 class="text-2xl font-semibold text-foreground tracking-tight">上传文档到知识库</h1>
+                <p class="text-muted-foreground text-sm">支持 TXT 和可复制文本的 PDF 文件，单文件不超过 20MB</p>
+            </div>
+
+            <!-- 上传表单区域 -->
+            <section id="upload-section" class="bg-card rounded-xl border border-border shadow-sm p-6 sm:p-8 space-y-6">
+
+                <!-- 知识库选择 -->
+                <div class="space-y-2">
+                    <label for="knowledge-base" class="block text-sm font-medium text-foreground">
+                        选择知识库
+                        <span class="text-destructive ml-1">*</span>
+                    </label>
+                    <p class="text-xs text-muted-foreground">请选择要将文档上传至哪个知识库</p>
+                    <div class="relative mt-1">
+                        <select id="knowledge-base" class="w-full h-11 px-4 pr-10 rounded-lg border border-input bg-background text-foreground text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring transition-all cursor-pointer">
+                            <option value="" disabled selected>请选择知识库...</option>
+                            <option value="kb-1">产品文档库</option>
+                            <option value="kb-2">技术规范库</option>
+                            <option value="kb-3">运营知识库</option>
+                            <option value="kb-4">客户服务知识库</option>
+                        </select>
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                            <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 拖拽上传区域 -->
+                <div class="space-y-2">
+                    <label class="block text-sm font-medium text-foreground">
+                        上传文件
+                    </label>
+                    <div id="drop-zone" class="relative border-2 border-dashed border-border rounded-xl p-8 sm:p-10 text-center transition-all duration-200 cursor-pointer hover:border-primary/50 hover:bg-accent/30 group">
+                        <input type="file" id="file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" accept=".txt,.pdf">
+                        <div class="flex flex-col items-center space-y-4 pointer-events-none">
+                            <div class="w-16 h-16 rounded-full bg-accent flex items-center justify-center text-accent-foreground group-hover:scale-110 transition-transform duration-200">
+                                <i data-lucide="file-up" class="w-8 h-8"></i>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-sm font-medium text-foreground">
+                                    拖拽文件到此处，或 <span class="text-primary underline underline-offset-2">点击选择文件</span>
+                                </p>
+                                <p class="text-xs text-muted-foreground">支持 .txt, .pdf 格式，最大 20MB</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 已选文件提示（默认隐藏，JS 可控制显示） -->
+                    <div id="file-selected" class="hidden mt-3 flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                        <div class="w-10 h-10 rounded-lg bg-accent flex items-center justify-center text-accent-foreground flex-shrink-0">
+                            <i data-lucide="file-text" class="w-5 h-5"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p id="selected-filename" class="text-sm font-medium text-foreground truncate">document.txt</p>
+                            <p id="selected-filesize" class="text-xs text-muted-foreground">2.4 MB</p>
+                        </div>
+                        <button type="button" id="remove-file" class="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors pointer-events-auto">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 上传按钮 -->
+                <button id="upload-btn" class="w-full h-11 inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-2 focus:ring-offset-card disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i data-lucide="upload" class="w-4 h-4"></i>
+                    <span>上传并解析文档</span>
+                </button>
+
+            </section>
+
+            <!-- 解析结果区域 -->
+            <section id="result-section" class="space-y-6">
+
+                <!-- 成功状态标题 -->
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-[var(--rag-success)]/10 flex items-center justify-center text-[var(--rag-success)]">
+                        <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-semibold text-foreground">解析入库成功</h2>
+                        <p class="text-sm text-muted-foreground">文档已成功解析并添加到知识库</p>
+                    </div>
+                </div>
+
+                <!-- 文件信息卡片 -->
+                <div class="bg-card rounded-xl border border-border shadow-sm p-5 space-y-4">
+                    <div class="flex items-center gap-3 pb-4 border-b border-border">
+                        <div class="w-12 h-12 rounded-lg bg-accent flex items-center justify-center text-accent-foreground flex-shrink-0">
+                            <i data-lucide="file-text" class="w-6 h-6"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-semibold text-foreground truncate">产品使用手册-v2.1.txt</p>
+                            <p class="text-xs text-muted-foreground">TXT 文本文件</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[var(--rag-success)]/10 text-[var(--rag-success)]">
+                            <i data-lucide="check" class="w-3 h-3"></i>
+                            已入库
+                        </span>
+                    </div>
+
+                    <!-- 数据指标卡片 -->
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="p-4 rounded-lg bg-muted/50 border border-border space-y-1">
+                            <div class="flex items-center gap-1.5 text-muted-foreground">
+                                <i data-lucide="hard-drive" class="w-3.5 h-3.5"></i>
+                                <span class="text-xs">文件大小</span>
+                            </div>
+                            <p class="text-lg font-semibold text-foreground">2.4 <span class="text-xs font-normal text-muted-foreground">MB</span></p>
+                        </div>
+                        <div class="p-4 rounded-lg bg-muted/50 border border-border space-y-1">
+                            <div class="flex items-center gap-1.5 text-muted-foreground">
+                                <i data-lucide="type" class="w-3.5 h-3.5"></i>
+                                <span class="text-xs">清洗后字符</span>
+                            </div>
+                            <p class="text-lg font-semibold text-foreground">48,256 <span class="text-xs font-normal text-muted-foreground">字</span></p>
+                        </div>
+                        <div class="p-4 rounded-lg bg-muted/50 border border-border space-y-1">
+                            <div class="flex items-center gap-1.5 text-muted-foreground">
+                                <i data-lucide="blocks" class="w-3.5 h-3.5"></i>
+                                <span class="text-xs">分块数</span>
+                            </div>
+                            <p class="text-lg font-semibold text-foreground">128 <span class="text-xs font-normal text-muted-foreground">块</span></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 内容预览卡片 -->
+                <div class="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                    <div class="flex items-center justify-between px-5 py-3.5 border-b border-border bg-muted/30">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="file-text" class="w-4 h-4 text-muted-foreground"></i>
+                            <h3 class="text-sm font-medium text-foreground">内容预览</h3>
+                        </div>
+                        <span class="text-xs text-muted-foreground">仅展示前 500 字</span>
+                    </div>
+                    <div class="p-5 max-h-64 overflow-y-auto">
+                        <div class="text-sm text-foreground/90 leading-relaxed space-y-3">
+                            <p>第一章 产品概述</p>
+                            <p>本产品是一款面向企业级用户的智能知识库管理系统，旨在帮助团队高效地组织、检索和共享知识资源。系统采用先进的自然语言处理技术，支持多种文档格式的自动解析与智能分块，让知识检索更加精准便捷。</p>
+                            <p>1.1 产品特点</p>
+                            <p>智能解析：支持 TXT、PDF、Word 等多种格式文档的自动解析，提取关键信息并进行智能分块处理。分块算法基于语义理解，确保每个分块都具有完整的语义信息，便于后续的检索和问答。</p>
+                            <p>高效检索：采用向量检索与关键词检索相结合的混合检索模式，支持自然语言提问，快速定位相关知识片段。检索结果按相关度排序，支持高亮显示匹配内容。</p>
+                            <p>知识图谱：自动构建知识之间的关联关系，形成可视化的知识图谱，帮助用户发现知识之间的内在联系，拓展知识边界。</p>
+                            <p>多租户架构：支持企业级多租户部署，各租户数据完全隔离，确保数据安全。支持灵活的权限管理，可按角色、部门等维度配置访问权限。</p>
+                            <p>1.2 系统架构</p>
+                            <p>系统采用微服务架构设计，主要包括文档处理服务、向量检索服务、问答服务、用户管理服务等核心模块。各服务之间通过 API 网关进行通信，支持水平扩展，可满足不同规模企业的使用需求。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <button class="flex-1 h-10 inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-ring/40">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        继续上传
+                    </button>
+                    <button class="flex-1 h-10 inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background text-foreground text-sm font-medium transition-all duration-200 hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring/40">
+                        <i data-lucide="book-open" class="w-4 h-4"></i>
+                        前往知识库
+                    </button>
+                </div>
+
+            </section>
+
+        </div>
+    </main>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

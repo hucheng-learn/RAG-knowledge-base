@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "page-upload",
+      "title": "上传文档到知识库",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1757418240000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 1446,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-371ad352",
+          "measuredAt": 1788925790865
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/upload.html",
+        "interactions": []
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "文档上传界面重设计"
+  }
+}
