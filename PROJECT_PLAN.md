@@ -319,6 +319,24 @@ CREATE TABLE chunks (
 - ✅ 真实验证：相关问题正确回答带 [来源1] 溯源；无关问题返回"资料中未找到相关信息"；
 - ⚠️ 待办（第六阶段）：token 输入长度校验、LLM 重试、限流、全链路日志。
 
+#### 前端页面设计（第五阶段配套，✅ 单页已实现 2026-08-28，随第六阶段微调）
+
+**技术选型**：单页 HTML + 原生 JS（无构建工具），由 FastAPI 以静态文件同源托管（`app/static/index.html`，挂载 `/`），无 CORS 问题。
+
+**三个 Tab（已实现）**：
+
+| 页面 | 功能 | 调用接口 |
+|---|---|---|
+| 知识库管理 | 新建 / 列表(文档数) / 删除(带确认) | `POST/GET/DELETE /api/v1/kbs` |
+| 文档上传 | 选择知识库 + 上传 + 显示解析结果(字符数/分块数/预览) | `POST /api/v1/documents/upload?kb_id=` |
+| RAG 问答 | 选择检索范围(全部/指定库) + SSE 流式回答 + 溯源卡片 | `POST /api/v1/chat`（SSE） |
+
+**实现要点**：
+- SSE 用 `fetch` + `ReadableStream` 解析（POST 带 JSON body 无法用 EventSource），按 `\n\n` 分帧、解析 `event:/data:` 行；
+- `start` 事件渲染溯源卡片（文档名/页码/相似度/原文），`delta` 逐 token 追加（带闪烁光标），`done` 收尾（错误时展示 msg）；
+- 前端挂载在**所有路由之后**（Starlette 按注册顺序匹配，放最后才不遮蔽 `/health`、`/docs`、`/api/v1/*`——真实踩过）；
+- 上传/问答按钮 loading 态防重复提交；知识库下拉全局共享（删除后联动刷新）。
+
 ### 8.6 第六阶段：工程稳定性优化（预留）
 
 - 输入 token 长度校验、大模型请求超时与重试、简易接口限流、全链路详细日志。
@@ -361,23 +379,3 @@ CREATE TABLE chunks (
 | 2026-09-01 | v1.5 | 前端单页实现：`app/static/index.html` 三个 Tab（知识库管理/文档上传/RAG 问答），fetch+ReadableStream 消费 SSE；FastAPI 同源托管（挂载需在所有路由之后，修复遮蔽 /health 问题） | 配套前端落地，便于可视化测试 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
-
----
-
-## 11. 前端页面设计（✅ 单页已实现 2026-08-28，随第六阶段微调）
-
-**技术选型**：单页 HTML + 原生 JS（无构建工具），由 FastAPI 以静态文件同源托管（`app/static/index.html`，挂载 `/`），无 CORS 问题。
-
-**三个 Tab（已实现）**：
-
-| 页面 | 功能 | 调用接口 |
-|---|---|---|
-| 知识库管理 | 新建 / 列表(文档数) / 删除(带确认) | `POST/GET/DELETE /api/v1/kbs` |
-| 文档上传 | 选择知识库 + 上传 + 显示解析结果(字符数/分块数/预览) | `POST /api/v1/documents/upload?kb_id=` |
-| RAG 问答 | 选择检索范围(全部/指定库) + SSE 流式回答 + 溯源卡片 | `POST /api/v1/chat`（SSE） |
-
-**实现要点**：
-- SSE 用 `fetch` + `ReadableStream` 解析（POST 带 JSON body 无法用 EventSource），按 `\n\n` 分帧、解析 `event:/data:` 行；
-- `start` 事件渲染溯源卡片（文档名/页码/相似度/原文），`delta` 逐 token 追加（带闪烁光标），`done` 收尾（错误时展示 msg）；
-- 前端挂载在**所有路由之后**（Starlette 按注册顺序匹配，放最后才不遮蔽 `/health`、`/docs`、`/api/v1/*`——真实踩过）；
-- 上传/问答按钮 loading 态防重复提交；知识库下拉全局共享（删除后联动刷新）。

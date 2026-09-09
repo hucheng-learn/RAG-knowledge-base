@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>企业知识库 RAG 助手</title>
+<title>虎橙知识库平台</title>
 <style>
   :root {
     --primary: #2563eb; --primary-dark: #1d4ed8; --bg: #f8fafc;
@@ -67,14 +67,14 @@
 <body>
 
 <header>
-  <h1>📚 企业知识库 RAG 助手</h1>
-  <p>文档上传 → 向量入库 → 基于知识库的智能问答（含溯源）</p>
+  <h1>📚 虎橙知识库平台</h1>
+  <p>文档上传 → 基于知识库的智能问答（可溯源）</p>
 </header>
 
 <nav id="tabbar">
   <button class="active" data-tab="kb">知识库管理</button>
   <button data-tab="upload">文档上传</button>
-  <button data-tab="chat">RAG 问答</button>
+  <button data-tab="chat">知识问答</button>
 </nav>
 
 <main>
@@ -121,9 +121,9 @@
         <span style="font-size:13px;color:var(--muted)">检索范围</span>
         <div class="spacer"></div>
       </div>
-      <textarea id="chat-query" rows="3" placeholder="输入你的问题，例如：RAG如何缓解大模型的幻觉问题？"></textarea>
+      <textarea id="chat-query" rows="3" placeholder="输入你的问题，例如：当前这个知识库主要讲啥"></textarea>
       <div style="margin-top:12px">
-        <button class="primary" id="chat-btn" onclick="sendChat()">🚀 提问（流式回答）</button>
+        <button class="primary" id="chat-btn" onclick="sendChat()">🚀 提问</button>
         <span class="msg" id="chat-status" style="margin-left:10px"></span>
       </div>
     </div>
@@ -133,7 +133,7 @@
     </div>
     <div class="card">
       <h2>💬 回答</h2>
-      <div id="answer"><div class="empty">提问后这里会流式显示回答</div></div>
+      <div id="answer"><div class="empty">提问后这里会显示回答</div></div>
     </div>
   </section>
 </main>
