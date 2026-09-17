@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.8 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-09
+> 当前版本：v1.13 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -14,6 +14,22 @@
 - **目标**：文档上传 → 解析 → 清洗 → 分块 → 向量化 → 入库；用户提问 → 召回 → 拼上下文 → 大模型 SSE 流式回答 + 溯源。
 - **开发方式**：严格按模块分阶段开发，**禁止一次性生成全部代码**，一个模块确认后再进入下一阶段。
 
+### 1.1 部署定位与数据边界
+
+本项目当前的目标交付形态是**客户本地部署（On-Premises）**：企业文档、解析结果、Embedding、向量数据和问答上下文原则上均保留在客户内网，不依赖第三方文档解析 SaaS。
+
+当前开发阶段为了提高验证效率，LLM 暂时使用 DeepSeek API，因此属于“本地数据处理 + 云端生成”的过渡性混合模式。后续使用 Ollama 部署本地 LLM，并确认 Embedding 始终使用本地模型后，形成全链路本地化方案。
+
+核心边界：
+
+- `uploads/` 保存原始上传文件，作为解析、重试、降级和实验复现的数据源；
+- MinerU 采用本地部署，不调用 MinerU 公有云 API，不上传企业 PDF；
+- `pdfplumber` 保留为轻量基线和 MinerU 故障时的降级解析器；
+- 解析、分块、向量化与 LLM 通过接口和配置解耦，便于后续扩展交付模式；
+- 当前不提前实现 SaaS、多租户、客户专属云等复杂能力，先完成客户本地部署主线。
+
+后续可基于本项目另拉分支学习其他交付模式：SaaS/公有云 API、客户专属云、混合云、托管私有云、一体机/边缘部署。本阶段只沉淀必要的抽象边界，不为这些模式提前引入额外复杂度。
+
 ---
 
 ## 2. 技术栈
@@ -21,16 +37,16 @@
 | 层次 | 选型 | 说明 |
 |---|---|---|
 | Web 框架 | Python + FastAPI | 异步、Pydantic 强校验、自带 OpenAPI 文档 |
-| PDF 解析 | **pdfplumber** |
+| PDF 解析 | **本地 MinerU**（目标）+ pdfplumber（基线/降级） | MinerU 负责复杂版面、表格、OCR 等结构化解析；pdfplumber 保留轻量回退能力 |
 | 文本解析 | 内置 open() 读取 | txt 直接读取 |
 | 向量库 | Milvus | 只存 embedding 向量，与 MySQL 元数据一一关联 |
 | 元数据库 | MySQL | 知识库、文档、chunk 元数据 |
 | Embedding | **bge-m3** | 本地 sentence-transformers 加载，1024 维；|
-| 大模型 | DeepSeek 官方 API（OpenAI 兼容） | 对话/生成，SSE 流式输出（`deepseek-v4-flash`） |
+| 大模型 | 当前 DeepSeek 官方 API；目标 Ollama 本地模型 | 当前用于快速验证，后续切换本地模型完成全链路私有化 |
 | ORM | SQLAlchemy 2.x | 配合 MySQL |
 | 前端 | 单页 HTML + 原生 JS | FastAPI 静态同源托管（`app/static/`），fetch + ReadableStream 消费 SSE，无构建工具 |
 | 配置 | pydantic-settings + .env | 禁止硬编码 |
-| 部署 | Docker / docker-compose | Milvus 已用 compose 部署，后端一键启动留待后续阶段 |
+| 部署 | Docker / docker-compose | 当前目标为客户本地部署；MinerU、后端、Milvus、MySQL、Ollama 逐步纳入本地部署 |
 
 ---
 
@@ -39,7 +55,7 @@
 ### 3.1 文档入库流程
 
 ```
-文档上传 → 文件解析 → 文本清洗 → 文本分块(chunk)
+文档上传 → `uploads/` 本地持久化 → 文件解析 → 文本清洗 → 结构化分块(chunk)
         → Embedding 生成向量 → 向量存入 Milvus，chunk 元数据存入 MySQL
 ```
 
@@ -87,7 +103,9 @@ project_root/
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py            # DocumentParser 抽象接口（可扩展 OCR 等）
 │   │   │   ├── txt_parser.py      # txt 解析
-│   │   │   └── pdf_parser.py      # pdfplumber 解析，逐页提取
+│   │   │   ├── pdf_parser.py      # pdfplumber 解析，基线与降级
+│   │   │   ├── block.py            # 结构化文档块模型（标题/段落/表格等）
+│   │   │   └── mineru_parser.py    # 本地 MinerU 解析适配器
 │   │   ├── embedding_service.py   # Embedding 抽象
 │   │   ├── chunk_service.py       # 分块：chunk_size + overlap
 │   │   ├── vector_service.py      # Milvus 操作封装
@@ -113,15 +131,20 @@ project_root/
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
 ├── deploy/
-│   └── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone）
+│   ├── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone）
+│   └── docker-compose.mineru.yml  # MinerU 4.0 本地 V1 API 服务（宿主 8001，GPU）
 ├── sql/                           # MySQL 建表 SQL（权威版本）
 │   └── schema.sql                 # 三张表完整 DDL
 ├── scripts/                       # 工具脚本
-│   └── verify_schema.py          # ORM ↔ DB 字段一致性校验
+│   ├── verify_schema.py           # ORM ↔ DB 字段一致性校验
+│   └── rebuild_vectors.py         # 向量重建（对账+补偿）
+├── tests/                         # 回归测试（解析基线等）
 ├── uploads/                       # 上传文件存储目录
 ├── logs/                          # 日志目录
-├── PROJECT_PLAN.md                # 本计划文档
-├── TECH_DESIGN.md                 # 技术设计与面试要点文档
+├── docs/                          # 文档目录
+│   ├── PROJECT_PLAN.md            # 本计划文档（唯一事实来源）
+│   └── TECH_DESIGN.md             # 技术设计与面试要点
+├── AGENTS.md                      # 协作约定（供不同 AI Agent 遵守）
 ├── requirements.txt
 ├── requirements-dev.txt           # 测试工具依赖（fpdf2 等）
 ├── .env.example                   # 环境变量模板；.env 为本地真实配置
@@ -146,6 +169,20 @@ project_root/
 5. 所有接口参数全部使用 Pydantic 强校验。
 6. 日志打印关键信息：接口入参、文件名称、异常堆栈。
 7. **版本管理约定**：每个阶段完成 → 提交到 `dev` 分支。
+8. **下载 / 网络约定**：任何下载动作前，先明确说明**是否需要代理**，再执行。规则如下：
+   - **需要代理**：GitHub（git push/pull、release）、docker.io 官方仓库、官方 PyPI、HuggingFace 本体；
+   - **不需要代理（直连更快，开着代理反而可能拖慢或干扰）**：DaoCloud 镜像站、清华 PyPI（`pypi.tuna.tsinghua.edu.cn`）、阿里 `mirrors.aliyun.com`（**实测本机极慢 ~90kB/s 且频繁断流，不推荐**）、ModelScope、`hf-mirror.com`；
+   - Docker/Dockerfile 内的下载**不走宿主机代理设置**，需单独在 Docker Desktop 配置；构建里的 pip 统一用清华源并加 `--mount=type=cache` 缓存挂载；
+   - 大文件/模型下载优先由用户执行，用户处理不了时由 AI 接管。
+   - 判断下载成功看实际产物（如 `docker images`），**不要看 PowerShell 的退出码**——Docker 进度写 stderr 会被误判为失败。
+9. **文档同步约定（强制，所有协作 Agent 共同遵守）**：任何改动都必须同步更新对应文档，**禁止"改代码不更文档"**。映射关系：
+   - **任何改动** → `docs/PROJECT_PLAN.md`：更新头部版本号与「最近更新」日期、修改对应章节、在「变更记录」追加一行；
+   - **设计决策 / 方案取舍 / 原理讲解** → `docs/TECH_DESIGN.md`；
+   - **表结构变更** → 同步 `sql/schema.sql`，并跑 `python scripts/verify_schema.py` 校验 ORM ↔ 实际库字段一致；
+   - **配置项增删改** → `.env` 与 `.env.example` 同步（模板不含真实密钥）；
+   - **README 必检项（每次改动都要过一遍）**：当前进度、启动步骤、已提供接口表、目录结构、依赖与环境要求、解析器/服务开关说明——凡涉及就更新 `README.md`；
+   - **部署方式变更** → `deploy/` 下对应说明文件；
+   - 接手本项目前先读 `docs/PROJECT_PLAN.md`；一次改动涉及多处文档时**一并更新**，不要只改代码。
 
 ---
 
@@ -162,6 +199,10 @@ project_root/
 | 第五阶段 | RAG 问答接口（召回 + SSE 流式 + 溯源）+ 前端单页 | ✅ 已完成 |
 | 第六阶段 | 工程稳定性优化 | ⬜ 未开始 |
 | 第七阶段 | 容器部署（Dockerfile + docker-compose） | ⬜ 未开始 |
+| 第八阶段 | 本地 MinerU 部署与结构化解析 | 🟡 进行中 |
+| 第九阶段 | 结构化分块、异步入库与解析降级 | ⬜ 未开始 |
+| 第十阶段 | Ollama 本地 LLM 与全链路私有化 | ⬜ 未开始 |
+| 第十一阶段 | pdfplumber / MinerU 对照实验与面试报告 | ⬜ 未开始 |
 
 > 状态标记：⬜ 未开始 ｜ 🟡 进行中 ｜ ✅ 已完成
 
@@ -204,6 +245,50 @@ project_root/
 
 - Dockerfile + docker-compose，一键启动后端、MySQL、Milvus 服务。
 
+### 8.8 第八阶段：本地 MinerU 部署与结构化解析（🟡 进行中）
+
+- 使用 Docker/WSL2 部署本地 MinerU，运行时不调用 MinerU 公有云 API，企业 PDF 不离开客户环境；
+- 保留 `uploads/` 作为原始文件仓库、解析重试、故障降级和实验复现数据源；
+- 扩展 `ParseResult`，在兼容 `text`/`page_texts` 的基础上增加结构化 `blocks`、`assets`、解析器名称与版本；
+- 新增 `DocumentBlock` 模型和 `MinerUParser` 本地解析适配器；
+- `pdfplumber` 保留为基线解析器和 MinerU 不可用时的降级方案；
+- 通过 `.env` 配置解析器，不在业务代码中写死具体实现。
+
+当前进度（2026-09-18）：
+- ✅ 解析结果模型（`DocumentBlock` + `ParseResult` 结构化字段）、解析器选择配置、MinerU 4.0 V1 API 适配器、本地部署说明均已完成；
+- ✅ 官方 GPU 镜像 `mineru:4` 已构建完成（MinerU 4.0.1，含标准档模型权重，39.9GB）；
+- ✅ 新增项目自用 compose `deploy/docker-compose.mineru.yml`（宿主 **8001** → 容器 8000，只绑回环，避开本项目 8000 端口）；
+- ✅ 真实解析验收通过：两页中文 PDF（含标题/段落/表格）→ 2 页、6 个结构化块、**块类型识别正确**（`paragraph_title`/`text`/`table`）、表格以 Markdown 结构完整保留、端到端 **3.09s**；
+- ⚠️ 已知问题（待第九阶段）：
+  1. **首次解析慢**：api-server 用 vLLM 引擎，容器启动后第一次解析要等引擎 warmup（约 2~3 分钟），期间客户端可能遇到连接被拒；
+  2. **降级未接**：MinerU 不可用时不会回退 pdfplumber（`PDF_PARSER=mineru` 时上传会直接失败）；
+  3. `page_texts` 为空的风险：`structured_content` 拿不到但 markdown 成功时，`text` 有内容而 `page_texts=[]`，会导致分块 0 块；
+  4. `assets` 字段已声明但适配器尚未填充（图片/表格素材），`parser_version` 为硬编码 `4.x`。
+
+### 8.9 第九阶段：结构化分块、异步入库与解析降级（规划）
+
+- 分块优先消费 MinerU 的标题、段落、表格、列表等结构块；表格保留为完整语义块，超长块再滑动窗口切分；
+- 每个 chunk 保留来源页码、块类型、标题路径等溯源元数据；无结构块时回退现有按页分块逻辑；
+- 上传流程逐步改为 `pending → processing → completed/ degraded/ failed`，避免 MinerU 阻塞同步上传请求；
+- 使用独立 worker 扫描数据库任务，保存 MinerU 任务状态，支持超时、重试、幂等和服务重启恢复；
+- MinerU 失败但 pdfplumber 成功时标记 `degraded`，不把降级结果伪装成完整结构化解析；
+- 增加文件 SHA-256 和解析结果缓存，避免重复解析和重复消耗本地资源。
+
+### 8.10 第十阶段：Ollama 本地 LLM 与全链路私有化（规划）
+
+- 当前阶段暂时使用 DeepSeek API，加快 RAG 功能验证；
+- 后续通过 Ollama 部署本地 LLM，保持 `LLMService` 接口不变，通过配置切换模型供应商；
+- 确认 Embedding 始终使用本地 `bge-m3` 或其他本地模型，避免只实现 PDF 本地解析但 Embedding 仍然出网；
+- 最终形成“本地 MinerU + 本地 Embedding + Milvus + MySQL + Ollama”的客户本地部署方案；
+- 当前不提前实现 SaaS/公有云、多租户、客户专属云、托管私有云、混合云或一体机交付形态，后续通过独立分支学习扩展。
+
+### 8.11 第十一阶段：对照实验与面试报告（规划）
+
+- 固定同一批普通文本、双栏、扫描件、复杂表格、公式和多级标题 PDF；
+- 对比 `pdfplumber + 原有分块` 与 `MinerU + 结构化分块`；固定 Embedding、Top-K、提示词和问题集；
+- 记录文本完整率、表格结构正确率、OCR 效果、Recall@K、MRR、问答准确率、页码引用准确率、解析耗时、资源占用、失败率和降级率；
+- 不预设 MinerU 必然更好，以真实数据决定默认解析器，并形成可用于面试说明技术选型的实验报告。
+
 ---
 
 ## 9. 每阶段交付物模板（输出固定格式）
@@ -239,5 +324,10 @@ project_root/
 | 2026-09-01 | v1.6 | 对账+补偿机制落地（6.5）：① 重建逻辑抽为 `vector_rebuild_service.py` 可调度函数（CLI/定时器/查询兜底复用）；② 查询兜底分级——召回空但有文档→自动后台重建+明确提示，真没文档→提示上传，正常无关→答未找到；修复 `ensure_collection` 进程内缓存导致集合丢失后不重建的 bug | 解决"MySQL 有记录但 Milvus 没向量"的一致性与用户体验问题 |
 | 2026-09-09 | v1.7 | 文档结构调整：前端内容并入第五阶段；「核心设计决策」精简为指向 TECH_DESIGN.md 的指引（避免重复维护）；三表 DDL 抽离至 `sql/schema.sql`；技术栈/分层架构/目录结构同步（补前端、DeepSeek API、static/scripts/sql）；各阶段明细压缩为结果概览 | 前端已实现，文档与 TECH_DESIGN 去重、SQL 独立成文件、计划文档简化 |
 | 2026-09-09 | v1.8 | 上传去重：同一知识库下 `original_filename` 同名拒绝，避免重复文件造成检索结果成对重复；前端补齐：知识库管理每行新增「文档」按钮，弹窗展示文档列表（文件名/大小/分块数/上传时间）+ 单文档删除按钮（调 DELETE /documents/{file_id}） | 修复「来源重复」问题；补齐文档管理最小闭环 |
+| 2026-09-17 | v1.9 | 明确项目当前定位为客户本地部署；规划本地 MinerU、结构化解析/分块、异步入库、解析降级、Ollama 全链路私有化及对照实验报告；保留 pdfplumber 作为基线与降级方案，并记录后续可扩展的其他交付模式 | 兼顾当前学习项目的逐步演进与企业文档私有化目标，避免提前引入 SaaS/多租户等无关复杂度 |
+| 2026-09-17 | v1.10 | 第六阶段前置与第八阶段启动：新增解析回归测试、pdfplumber/TXT 解析耗时与结果日志；`ParseResult` 扩展结构化 blocks/assets/解析器元数据；新增 MinerU 4.0 本地 V1 API 适配器、配置项和部署说明 | 建立现有解析基线，并开始接入官方 MinerU 4.0 本地服务；镜像构建与真实 PDF 验收待继续完成 |
+| 2026-09-17 | v1.11 | 新增下载/网络约定（开发规则第 8 条）：下载前先说明是否需要代理，列出需代理/直连的源清单；`mineru:4` 本地镜像构建完成（39.9GB，MinerU 4.0.1 + 标准档模型权重；Dockerfile 改：pip 换清华源+阿里兜底、去掉 `-U` 无谓重装 torch、加 pip 缓存挂载、删除会触发 docker.io 的 `# syntax` 行） | 网络下载是本项目最高频阻塞点（aliyun 源 90kB/s 反复断流导致多次构建失败）；镜像构建打通，第八阶段可继续真实 PDF 验收 |
+| 2026-09-18 | v1.12 | 新增开发规则第 9 条「文档同步约定（强制）」+ 项目根 `AGENTS.md`（协作约定，供不同 AI Agent 遵守）；新增 `deploy/docker-compose.mineru.yml`（MinU V1 API 服务，宿主 8001→容器 8000，GPU 预留，只绑回环）；配置清理：删除死配置 `HOST`/`PORT`（uvicorn 命令行决定）与无用 `MINERU_API_KEY`（本地服务无鉴权），`.env` 补上 MinerU 配置块；第八阶段真实 PDF 验收通过（2 页 / 6 块 / 类型识别正确含 table / 3.09s） | 让协作者与不同 Agent 都遵守"改动必须回写文档"；打通 MinerU 本地解析并清理配置噪音 |
+| 2026-09-18 | v1.13 | README 全量对齐：修正文档路径（根目录 → `docs/`）、补第八阶段进度、补目录结构/接口/环境说明、新增「文档解析器（pdfplumber/MinerU）」章节；规则第 9 条补充 **README 必检项**（进度/启动/接口表/目录/依赖环境/开关说明） | README 是外部读者第一入口，必须与代码和计划保持同步 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

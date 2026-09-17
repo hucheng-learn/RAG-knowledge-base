@@ -9,15 +9,42 @@ ParseResult 携带 page_texts（逐页文本），为后续分块模块的
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
-class ParseResult:
-    """解析结果：全文 + 逐页文本。"""
+@dataclass
+class DocumentBlock:
+    """结构化文档块，供结构化分块和来源溯源使用。"""
 
-    def __init__(self, text: str, page_texts: list) -> None:
+    block_type: str
+    content: str
+    page_number: int
+    block_index: int = 0
+    heading_path: list[str] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+
+class ParseResult:
+    """解析结果：兼容纯文本，同时承载结构化块和解析元数据。"""
+
+    def __init__(
+        self,
+        text: str,
+        page_texts: list,
+        blocks: list[DocumentBlock] | None = None,
+        assets: list[dict] | None = None,
+        parser_name: str = "unknown",
+        parser_version: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
         self.text = text              # 全文（页间以两个换行分隔）
         self.page_texts = page_texts  # 逐页文本列表，顺序即页码（txt 视为单页）
+        self.blocks = blocks or []
+        self.assets = assets or []
+        self.parser_name = parser_name
+        self.parser_version = parser_version
+        self.metadata = metadata or {}
 
     def __len__(self) -> int:
         return len(self.text)

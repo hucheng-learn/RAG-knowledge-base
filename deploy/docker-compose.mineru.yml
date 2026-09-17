@@ -1,0 +1,61 @@
+# ============================================================
+# MinerU 4.0 本地解析服务（客户本地部署，不调用 MinerU 公有云 API）
+#
+# 用法：
+#   docker compose -f deploy/docker-compose.mineru.yml up -d      # 启动
+#   curl.exe http://127.0.0.1:8001/v1/health                      # 健康检查
+#   docker compose -f deploy/docker-compose.mineru.yml logs -f    # 看日志
+#   docker compose -f deploy/docker-compose.mineru.yml down       # 停止
+#
+# 设计说明：
+#   1. 镜像 `mineru:4` 由 MinerU 仓库的 docker/china/Dockerfile 构建，
+#      模型权重已打进镜像（MINERU_MODEL_SOURCE=local），运行时不需要联网；
+#   2. 宿主端口用 **8001**：本项目 FastAPI 占用 8000，避免冲突，
+#      与 .env 的 MINERU_API_URL=http://127.0.0.1:8001 保持一致；
+#   3. 端口只绑 127.0.0.1（回环），不暴露到局域网——企业文档不出内网；
+#   4. 需要 NVIDIA GPU：Docker Desktop（WSL2）+ NVIDIA 驱动 + GPU 支持。
+#
+# 注意：本文件是"项目自用"的精简版（只起 V1 API 服务，端口避开冲突）。
+# MinerU 官方 docker/compose.yaml 还提供 openai-server / router / webui 等
+# profile，需要时改用官方那份。
+# ============================================================
+
+services:
+  mineru-api:
+    image: mineru:4
+    container_name: mineru-api
+    restart: unless-stopped
+    ports:
+      # 宿主 8001 → 容器 8000（只绑回环，不对外网开放）
+      - "127.0.0.1:8001:8000"
+    environment:
+      # 用镜像内已下载的模型，运行时不联网
+      MINERU_MODEL_SOURCE: local
+    entrypoint: ["mineru-kit"]
+    command:
+      - api-server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --tier
+      - standard
+    # vLLM 需要较大的共享内存与解除 memlock 限制
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # 首次启动要把模型加载进显存，给足预热时间
+      start_period: 300s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]

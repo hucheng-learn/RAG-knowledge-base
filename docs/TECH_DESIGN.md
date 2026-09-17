@@ -354,7 +354,141 @@ event: done    data: {"code":0,"msg":"ok","answer":"完整回答","token_count":
 
 ---
 
+## 12. 技术选型：自研编排 vs LangChain（设计决策记录）
+
+> 决策：**RAG 主干采用原生库自研编排**（FastAPI + SQLAlchemy + pymilvus + sentence-transformers + httpx），不引入 LangChain 全家桶；生态中明显缺失的高级能力（Reranker、评估）后续按需引入。
+> 本文记录决策依据，供复盘与面试讲解。
+
+### 12.1 逐层对标
+
+| RAG 环节 | 本项目（自研） | LangChain 等价物 |
+|---|---|---|
+| 文档加载 | `DocumentParser` 抽象 + 工厂注册表（`app/service/parser/`） | `PyPDFLoader` / `TextLoader` / `UnstructuredFileLoader` |
+| 文本清洗 | `utils/clean_text.py`，规则可 .env 开关 | 无内置，需自写 transformer |
+| 分块 | 手写滑动窗口 + **按页分块保留页码**（`chunk_service.py`） | `RecursiveCharacterTextSplitter`（更智能，默认不带页码） |
+| 向量化 | `EmbeddingService` 抽象 + sentence-transformers 直调 | `HuggingFaceBgeEmbeddings` / `OpenAIEmbeddings` |
+| 向量库 | pymilvus 手写 schema/index/load/filter（`vector_service.py`） | `langchain_milvus.Milvus`（VectorStore 封装） |
+| 元数据存储 | **MySQL 单一事实源**，Milvus 只存向量 + 过滤字段 | 元数据塞进向量库 `metadata`，靠 filter 查 |
+| 检索 | 手写 `search()` + `doc_id in [...]` 过滤 + 相似度阈值 | `as_retriever(search_type="similarity_score_threshold")` |
+| 流程编排 | 手写 async generator（`rag_service.py`） | LCEL `prompt | llm | parser` / `RetrievalQA` |
+| 提示词 | f-string 显式拼接 | `ChatPromptTemplate` |
+| LLM 调用 | httpx 手写 SSE 解析（`llm_service.py`） | `ChatOpenAI(streaming=True)` |
+| 溯源 | `_build_trace()` 回查 MySQL 取原文/页码/文档名 | `return_source_documents=True` |
+| 流式协议 | 自定义 SSE `start/delta/done` | `astream_events()` 回调 |
+
+### 12.2 选自研的四个决定性理由
+
+**1. 数据一致性模型自研更强（最核心理由）**
+本项目 MySQL 是元数据唯一事实源、Milvus 主键 = `chunks.id`，入库走「先 MySQL 拿 id → 再写 Milvus → 失败 `_compensate` 三级回滚」，两边 id 集合可直接对账（见 6.5）。LangChain 的 VectorStore 默认把元数据托管在向量库内，**不提供也不约束双写一致性与补偿**，要实现本项目这套对账语义反而要绕开其默认存储模型。
+
+**2. 流式输出的细节可控**
+DeepSeek 推理模型流式先吐 `reasoning_content`（思考过程）后吐 `content`（正文），`llm_service.py` 手动解析 SSE 只透出正文。用 `ChatOpenAI` 时推理内容落在 `additional_kwargs`，需另写自定义 parser 剥离——框架没有省事，还多一层。
+
+**3. 栈浅，异常与兜底可定位**
+本项目召回为空时的三级分支（向量丢失→后台重建并提示 / 范围内无文档→提示上传 / 阈值过滤后为空→换问法）都是显式代码，日志直接到行。LangChain 一次检索要穿过 `RunnableSequence → RunnableParallel → BaseRetriever` 多层抽象，异常常被包装吞掉，实现同等兜底需自定义 Retriever，表达更绕。
+
+**4. 依赖与版本成本**
+LangChain 依赖树庞大，且 0.1→0.2→0.3 多次破坏性升级（本项目在 pymilvus 2.x→3.x 的 `index_params`/`search_params` 变更上已体会过同类成本，见 9.4）。自研只用四个稳定底层库，升级面由自己控制。
+
+### 12.3 承认 LangChain 的优势（决策不是否定框架）
+
+- **搭 POC 快**：loader/splitter/vectorstore/chain 几行串完，原型阶段提速明显；
+- **高级检索生态**：Reranker（bge-reranker）、BM25 + 向量混合检索（RRF 融合）、HyDE/查询改写、多轮记忆，均有现成集成；
+- **评估生态**：ragas、LangSmith 等评测/可观测工具链成熟。
+
+本项目当前「top-k=4 + COSINE 单阈值」的召回质量有明确上限，低于「向量粗排 20 → rerank 精排取 4」的两阶段方案——这是自研路线当前欠下的技术债，需在演进中偿还。
+
+### 12.4 取舍总览
+
+| 维度 | 自研（本项目选择） | LangChain |
+|---|---|---|
+| 可控性 / 报错定位 | 强（每步显式、栈浅） | 中（抽象层遮挡） |
+| 原型搭建速度 | 慢 | 快 |
+| 依赖与启动成本 | 轻 | 重 |
+| 版本稳定性 | 自主控制 | 破坏性变更频繁 |
+| 双写一致性 / 补偿 | 强（已落地） | 弱，需自建 |
+| 高级检索 / 评估生态 | 暂无 | 丰富 |
+
+### 12.5 演进路线：混合策略，而非二选一
+
+保留自研主干不动，**只把真正缺失的零件从生态引入**：
+
+1. 检索质量：接入 bge-reranker 做粗排→精排两阶段（优先，收益最大）；
+2. 混合检索：加 BM25 稀疏召回 + RRF 融合，解决向量检索对专有名词/编号不敏感的问题；
+3. 评估：引入 ragas 构建问答评测集，用 recall@k / 忠实度等指标驱动 chunk_size、阈值调参（替代拍脑袋）；
+4. 引入方式仍遵循 `EmbeddingService` 式的抽象接口原则——框架组件被封装在 service 接口之后，可随时替换，不污染业务层。
+
+### 12.6 面试答法（三句话）
+
+1. **认同价值**：LangChain 原型提速明显，Reranker、评估等生态正是我们目前缺的；
+2. **给出理由**：本项目的核心诉求是「数据可对账 + 流式可控 + 报错可定位」——MySQL↔Milvus 双写补偿和 `reasoning_content` 剥离用框架反而要写更多 custom 组件绕开默认行为；
+3. **给出演进**：主干自研保持可控，检索增强与评估优先复用生态，**该自研的自研，该用轮子的用轮子**。
+
+---
+
+## 13. 本地 MinerU 接入（第八阶段）
+
+### 13.1 私有部署边界（面试点）
+
+- **MinerU 本地部署，不调用 MinerU 公有云 API**：企业 PDF 不出客户内网；
+- 服务端口**只绑 `127.0.0.1`（回环）**，不暴露局域网；需要跨容器访问时才用内部 Docker 网络 + `--api-key`/认证反代；
+- 镜像 `mineru:4` 由 MinerU 官方 `docker/china/Dockerfile` 构建，**模型权重已打进镜像**（`MINERU_MODEL_SOURCE=local`），运行时不联网；
+- `uploads/` 作为原始文件仓库（解析、重试、降级、实验复现的数据源），不作为公网静态目录。
+
+### 13.2 V1 API 作业流
+
+MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走：
+
+```
+① POST /v1/uploads            创建上传（返回 upload_url）
+② PUT  {upload_url}           上传文件字节 → POST /v1/uploads/{id}/complete
+③ POST /v1/parse/jobs         创建解析任务（tier + output_formats）
+④ GET  /v1/parse/jobs/{id}    轮询直到 completed/partial → 下载结果文件
+   结果：structured_content（结构化 JSON）+ markdown
+```
+
+- 选 `structured_content` 是为了拿**块级结构**（`block.type` 区分 `paragraph_title`/`text`/`table` 等）+ 页码，供第九阶段结构化分块与溯源使用；
+- markdown 作为全文来源（`ParseResult.text`）；
+- 旧版 `/file_parse`、`/tasks` 路由在 4.0 不适用。
+
+### 13.3 ParseResult 结构化扩展的兼容设计
+
+`ParseResult` 从「`text` + `page_texts`」扩展为：
+
+| 字段 | 说明 |
+|---|---|
+| `text` / `page_texts` | **保留不变**（旧代码、按页分块、清洗链路零改动） |
+| `blocks: list[DocumentBlock]` | 结构化块：`block_type` / `content` / `page_number` / `block_index` / `heading_path` / `metadata` |
+| `assets` | 图片/表格等素材（已声明，适配器暂未填充） |
+| `parser_name` / `parser_version` | 解析器来源，便于线上排查与实验对比 |
+
+**兼容策略**：新增字段全部可选（默认空/`unknown`），因此 pdfplumber、txt 解析器无需改动即可继续工作——**先扩契约、后接能力**，避免一次性大改。
+
+### 13.4 解析器选择：配置驱动
+
+`get_parser(extension)` 仍是唯一入口，按 `.env` 的 `PDF_PARSER` 决定 PDF 用哪个实现（`pdfplumber` / `mineru`）；业务层（`document_service`）不感知具体解析器——**换实现不改上层**。
+
+端口与安全：
+- 本项目 FastAPI 占 8000，MinerU 服务映射到宿主 **8001**（`MINERU_API_URL=http://127.0.0.1:8001`）；
+- compose 在 `deploy/docker-compose.mineru.yml`（GPU 预留、`ipc: host`、放宽 memlock）。
+
+### 13.5 实测结论与已知缺口
+
+**实测（2026-09-18）**：两页中文 PDF（含标题/段落/表格）→ 2 页、**6 个结构化块**，块类型识别正确（`paragraph_title`/`text`/`table`），表格以 Markdown 结构完整保留，端到端 **3.09s**。
+
+**已知缺口（第九阶段偿还）**：
+
+1. **降级未接**：`PDF_PARSER=mineru` 时 MinerU 不可用不会回退 pdfplumber → 上传直接失败（计划做 `degraded` 状态）；
+2. **首次解析慢**：api-server 用 vLLM 引擎，容器启动后首次解析要等 warmup（约 2~3 分钟），期间客户端可能遇到连接被拒 —— 客户端应对瞬时连接错误做**重试**；
+3. **`page_texts` 可能为空**：`structured_content` 缺失但 markdown 成功时，`text` 有内容而 `page_texts=[]` → 分块 0 块（需 fallback 到 `[text]`）；
+4. `assets` 未填充、`parser_version` 硬编码 `4.x`；
+5. MinerU 的 job 索引不是持久队列，**容器重启后旧 job id 不可恢复**，持久任务与重试需自建（第九阶段）。
+
+---
+
 > 更新记录：v0.2 2026-08-21 覆盖第一、二阶段技术方案与面试要点；移除运维/环境层面的琐碎问题记录（本文档只沉淀有讲解价值的代码设计与面试要点）。
 > v0.3 2026-08-27 新增第三阶段：Embedding 抽象、Milvus collection 设计、双写一致性落地、环境工程要点。
 > v0.4 2026-08-28 新增第四阶段：知识库接口设计、删除级联顺序、批量删除不触发 ORM 级联、Milvus 删除异步语义。
 > v0.5 2026-08-28 新增第五阶段：RAG 问答链路、SSE 协议、httpx 手动解析 SSE（含推理模型 reasoning_content 陷阱）、防幻觉双保险。
+> v0.6 2026-09-17 新增第十二章：技术选型决策记录——自研编排 vs LangChain 的逐层对标、选型理由、取舍总览与混合演进路线。
+> v0.7 2026-09-18 新增第十三章：本地 MinerU 接入（私有部署边界、V1 API 作业流、ParseResult 结构化扩展的兼容设计、端口/安全边界、实测结论与已知缺口）。

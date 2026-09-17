@@ -6,9 +6,13 @@
 """
 
 from pathlib import Path
+from time import perf_counter
 
 from app.service.parser.base import DocumentParser, ParseResult
 from app.utils.exceptions import BizException
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # 按优先级尝试的编码列表
 _ENCODINGS = ("utf-8", "gbk")
@@ -18,9 +22,14 @@ class TxtParser(DocumentParser):
     """txt 解析：UTF-8/GBK 自适应读取，整体视为单页。"""
 
     def parse(self, file_path: Path) -> ParseResult:
+        started = perf_counter()
         text = self._read_text(file_path)
         # txt 无分页概念，全文作为一页（page_texts 仅 1 个元素）
-        return ParseResult(text=text, page_texts=[text])
+        logger.info(
+            "TXT 解析完成: 文件=%s 字符数=%d 耗时_ms=%.2f 解析器=txt",
+            file_path.name, len(text), (perf_counter() - started) * 1000,
+        )
+        return ParseResult(text=text, page_texts=[text], parser_name="txt")
 
     @staticmethod
     def _read_text(file_path: Path) -> str:

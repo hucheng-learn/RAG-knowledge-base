@@ -65,11 +65,13 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list:
     return chunks
 
 
-def chunk_document(parse_result: ParseResult) -> list:
+def chunk_document(parse_result: ParseResult, page_texts: list[str] | None = None) -> list:
     """按页分块：每页内部滑动窗口切分，块携带页码信息。(按解析段分块，PDF 对应物理页，TXT 对应全文)
 
     Args:
         parse_result: 解析结果（含逐页文本 page_texts）。
+        page_texts: 可选的分块文本页列表。传入时用于替代解析器原始文本，
+            例如使用清洗后的逐页文本；未传入时保持原有行为。
 
     Returns:
         TextChunk 列表，chunk_index 为文档内全局编号。
@@ -78,7 +80,8 @@ def chunk_document(parse_result: ParseResult) -> list:
     chunks: list = []
     global_index = 0
     # enumerate(start=1)：页码从 1 开始，符合人类阅读习惯
-    for page_idx, page_text in enumerate(parse_result.page_texts, start=1):
+    source_pages = parse_result.page_texts if page_texts is None else page_texts
+    for page_idx, page_text in enumerate(source_pages, start=1):
         for piece in chunk_text(page_text, settings.chunk_size, settings.chunk_overlap):
             chunks.append(
                 TextChunk(chunk_index=global_index, content=piece, page_number=page_idx)

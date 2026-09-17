@@ -9,6 +9,7 @@
 """
 
 from pathlib import Path
+from time import perf_counter
 
 import pdfplumber
 
@@ -26,6 +27,7 @@ class PdfParser(DocumentParser):
     """PDF 解析：pdfplumber 逐页提取文字，含扫描版检测。"""
 
     def parse(self, file_path: Path) -> ParseResult:
+        started = perf_counter()
         page_texts: list[str] = []
         try:
             # pdfplumber.open 返回上下文管理器，with 块结束自动关闭文件
@@ -38,12 +40,31 @@ class PdfParser(DocumentParser):
         except Exception as exc:
             # 文件损坏/加密等系统级问题：打完整堆栈，转业务异常给用户
             logger.exception("PDF 解析失败: %s", file_path.name)
+            logger.info(
+                "PDF 解析耗时: 文件=%s 耗时_ms=%.2f 结果=failed",
+                file_path.name, (perf_counter() - started) * 1000,
+            )
             raise BizException(f"PDF 解析失败（文件可能已损坏或加密）: {file_path.name}") from exc
 
-        self._check_scanned(file_path, page_texts)
+        try:
+            self._check_scanned(file_path, page_texts)
+        except Exception:
+            logger.info(
+                "PDF 解析耗时: 文件=%s 耗时_ms=%.2f 结果=rejected",
+                file_path.name, (perf_counter() - started) * 1000,
+            )
+            raise
         # 页间双换行拼接（分块时以此为段落边界）
         text = "\n\n".join(page_texts)
-        return ParseResult(text=text, page_texts=page_texts)
+        logger.info(
+            "PDF 解析完成: 文件=%s 页数=%d 字符数=%d 耗时_ms=%.2f 解析器=pdfplumber",
+            file_path.name, len(page_texts), len(text),
+            (perf_counter() - started) * 1000,
+        )
+        return ParseResult(
+            text=text, page_texts=page_texts,
+            parser_name="pdfplumber", parser_version=pdfplumber.__version__,
+        )
 
     @staticmethod
     def _check_scanned(file_path: Path, page_texts: list[str]) -> None:

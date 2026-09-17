@@ -40,9 +40,8 @@ class Settings(BaseSettings):
     # 调试模式：true 时 FastAPI 返回详细错误（生产必须 false）
     debug: bool = False
 
-    # ---------- 服务 ----------
-    host: str = "0.0.0.0"
-    port: int = 8000
+    # 注意：服务监听地址/端口由 uvicorn 命令行参数决定
+    # （uvicorn app.main:app --host --port），不做配置项，避免两处配置不一致。
 
     # ---------- 文件上传 ----------
     upload_dir: str = "uploads"
@@ -96,6 +95,15 @@ class Settings(BaseSettings):
     rag_temperature: float = 0.3             # 知识库问答用较低温度，减少幻觉
     rag_max_tokens: int = 1024               # 回答最大 token 数
     rag_min_similarity: float = 0.3          # 召回相似度阈值：低于则视为无相关(过滤弱匹配)
+
+    # ---------- 本地 MinerU ----------
+    # 本地 MinerU 服务默认无鉴权，不设 API Key
+    pdf_parser: str = "pdfplumber"  # pdfplumber 或 mineru
+    mineru_api_url: str = "http://127.0.0.1:8001"  # MinerU 服务根地址，不含 /v1
+    mineru_tier: str = "standard"
+    mineru_timeout_seconds: int = 300
+    mineru_max_polls: int = 100
+    mineru_poll_interval_seconds: float = 3.0
 
     # ---------- 计算属性：业务层直接使用语义化值 ----------
 

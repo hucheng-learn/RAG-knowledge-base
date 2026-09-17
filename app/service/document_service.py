@@ -76,7 +76,14 @@ async def upload_document(
         parser = get_parser(extension)
         parse_result = await run_in_threadpool(parser.parse, target_path)
         cleaned = await run_in_threadpool(clean_text, parse_result.text)
-        chunks = await run_in_threadpool(chunk_document, parse_result)
+        # 分块也必须使用清洗后的文本，否则向量库会保留解析噪声，
+        # 而文档的 preview/char_count 使用的却是另一份文本。
+        cleaned_page_texts = await run_in_threadpool(
+            lambda: [clean_text(page) for page in parse_result.page_texts]
+        )
+        chunks = await run_in_threadpool(
+            chunk_document, parse_result, cleaned_page_texts
+        )
 
         # 1) MySQL 落库（单事务），拿 doc_id + 每个 chunk 的 id
         doc_id, chunk_records = await run_in_threadpool(

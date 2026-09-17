@@ -15,6 +15,10 @@ logs/
 # Milvus 容器运行时持久化数据（docker compose 启动后生成，不入库）
 deploy/volumes/
 
+# 临时调试/验证产物（AI 或人工临时脚本、生成物，不入库）
+.test_files/
+.tmp/
+
 # IDE / 系统
 .idea/
 .vscode/
