@@ -112,8 +112,13 @@
       <h2>上传文档到知识库</h2>
       <label>选择知识库 *</label>
       <select id="up-kb"><option value="">（请先在知识库管理页创建）</option></select>
-      <label>选择文件（txt / 可复制文本 PDF，≤20MB）</label>
-      <input type="file" id="up-file" accept=".txt,.pdf">
+      <label>选择文件（txt / md / pdf / docx / xls / 图片等，单文件 ≤20MB）</label>
+      <input type="file" id="up-file"
+             accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg">
+      <p style="font-size:12px;color:var(--muted);margin-top:6px">
+        可上传格式由后端 <code>ALLOWED_EXTENSIONS</code> 控制；txt/md 本地轻量解析，
+        pdf 由 <code>PDF_PARSER</code> 决定，docx/图片等交给本地 MinerU。
+      </p>
       <div style="margin-top:14px">
         <button class="primary" id="up-btn" onclick="uploadDoc()">上传并解析</button>
       </div>
@@ -330,7 +335,7 @@ async function uploadDoc() {
   const btn = document.getElementById("up-btn");
   if (!kbId) return showMsg(msgEl, "请先选择知识库", false);
   if (!file) return showMsg(msgEl, "请先选择文件", false);
-  showMsg(msgEl, "上传解析中（首次会加载模型，可能需要十几秒）…", true);
+  showMsg(msgEl, "上传解析中（MinerU 首次解析需等引擎预热，最长约 2~3 分钟，之后约 3 秒）…", true);
   btn.disabled = true;
   try {
     const fd = new FormData();
