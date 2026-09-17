@@ -464,25 +464,45 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 
 **兼容策略**：新增字段全部可选（默认空/`unknown`），因此 pdfplumber、txt 解析器无需改动即可继续工作——**先扩契约、后接能力**，避免一次性大改。
 
-### 13.4 解析器选择：配置驱动
+### 13.4 解析器选择：配置驱动 + 降级保护
 
-`get_parser(extension)` 仍是唯一入口，按 `.env` 的 `PDF_PARSER` 决定 PDF 用哪个实现（`pdfplumber` / `mineru`）；业务层（`document_service`）不感知具体解析器——**换实现不改上层**。
+`get_parser(extension)` 是唯一入口，按格式分派：
 
-端口与安全：
+| 格式 | 解析器 | 说明 |
+|---|---|---|
+| `.txt` / `.md` | `TxtParser` | 原生轻量，无需外部服务 |
+| `.pdf` | `PDF_PARSER` 决定 | `pdfplumber`（基线）或 `MinerU`；选 MinerU 时包 `FallbackDocumentParser` |
+| `.doc/.docx/.ppt/.pptx/.xls/.xlsx/.png/.jpg/.jpeg` | `MinerUParser` | 多格式由 MinerU（DocVortex）解析 |
+
+**降级设计（`FallbackDocumentParser`）**：主解析器抛异常 → 记 WARNING → 用备用解析器解析 → 在 `ParseResult.metadata` 打标 `degraded/primary_parser/backup_parser/degrade_reason`；上层把降级原因写入 `documents.parse_error`，响应透出 `parser_name`/`degraded`。**原则：降级结果不伪装成完整解析**。
+
+> 注意：`except ... as exc` 块结束后 `exc` 会被 Python 删除，降级原因必须先在块内取成字符串。
+
+**MIME 推断**：MinerU 支持多格式，上传时 `mime_type` 必须按扩展名推断（`mimetypes.guess_type`），不能写死 `application/pdf`。
+
+**端口与安全**：
 - 本项目 FastAPI 占 8000，MinerU 服务映射到宿主 **8001**（`MINERU_API_URL=http://127.0.0.1:8001`）；
-- compose 在 `deploy/docker-compose.mineru.yml`（GPU 预留、`ipc: host`、放宽 memlock）。
+- compose 在 `deploy/docker-compose.mineru.yml`（GPU 预留、`ipc: host`、放宽 memlock、只绑回环）。
 
 ### 13.5 实测结论与已知缺口
 
-**实测（2026-09-18）**：两页中文 PDF（含标题/段落/表格）→ 2 页、**6 个结构化块**，块类型识别正确（`paragraph_title`/`text`/`table`），表格以 Markdown 结构完整保留，端到端 **3.09s**。
+**实测（2026-09-18）**：
 
-**已知缺口（第九阶段偿还）**：
+| 输入 | 解析器 | 结果 |
+|---|---|---|
+| `.txt` / `.md` | txt | 正常，1 块 |
+| `.pdf`（两页含表格） | mineru | 2 页 / 2 块，块类型 `paragraph_title`/`text`/`table` 识别正确，表格保留 Markdown 结构，端到端约 3 秒 |
+| `.docx`（含标题/表格/分页） | mineru | 正常结构化解析 |
+| `.png`（含中文说明） | mineru | **图片 OCR 成功**，识别文字进入向量库 |
+| `.pdf`（停掉 MinerU） | **pdfplumber（降级）** | 自动回退成功、`degraded=True`、上传未失败、降级原因入库 |
 
-1. **降级未接**：`PDF_PARSER=mineru` 时 MinerU 不可用不会回退 pdfplumber → 上传直接失败（计划做 `degraded` 状态）；
-2. **首次解析慢**：api-server 用 vLLM 引擎，容器启动后首次解析要等 warmup（约 2~3 分钟），期间客户端可能遇到连接被拒 —— 客户端应对瞬时连接错误做**重试**；
-3. **`page_texts` 可能为空**：`structured_content` 缺失但 markdown 成功时，`text` 有内容而 `page_texts=[]` → 分块 0 块（需 fallback 到 `[text]`）；
-4. `assets` 未填充、`parser_version` 硬编码 `4.x`；
-5. MinerU 的 job 索引不是持久队列，**容器重启后旧 job id 不可恢复**，持久任务与重试需自建（第九阶段）。
+**仍待第九阶段**：
+
+1. **异步入库**：上传仍同步阻塞（MinerU 解析 + 向量化都在请求内完成），长文档会占住请求 → 改 `pending → processing → completed/degraded/failed` + 独立 worker；
+2. **`degraded` 状态值**：目前记录在 `parse_error` 文本中，第九阶段升级为独立状态（与异步状态机一起设计）；
+3. `assets`（图片/表格素材）未填充、`parser_version` 硬编码 `4.x`；
+4. **首次解析慢**：容器启动后首次解析需等 vLLM warmup（约 2~3 分钟），客户端应对瞬时连接错误做重试；
+5. MinerU 的 job 索引不是持久队列，容器重启后旧 job id 不可恢复，持久任务与重试需自建。
 
 ---
 
@@ -492,3 +512,4 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 > v0.5 2026-08-28 新增第五阶段：RAG 问答链路、SSE 协议、httpx 手动解析 SSE（含推理模型 reasoning_content 陷阱）、防幻觉双保险。
 > v0.6 2026-09-17 新增第十二章：技术选型决策记录——自研编排 vs LangChain 的逐层对标、选型理由、取舍总览与混合演进路线。
 > v0.7 2026-09-18 新增第十三章：本地 MinerU 接入（私有部署边界、V1 API 作业流、ParseResult 结构化扩展的兼容设计、端口/安全边界、实测结论与已知缺口）。
+> v0.8 2026-09-18 第十三章补充：多格式分派（txt/md 原生、pdf 可切换、office/图片走 MinerU）、FallbackDocumentParser 降级设计与 except 变量作用域陷阱、MIME 按扩展名推断、五种格式实测结果。

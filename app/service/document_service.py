@@ -85,10 +85,14 @@ async def upload_document(
             chunk_document, parse_result, cleaned_page_texts
         )
 
+        # 解析降级信息（如 MinerU 失败回退 pdfplumber）：记录到 documents.parse_error，
+        # 不把降级结果伪装成完整解析（第九阶段会升级为独立的 degraded 状态）
+        degrade_note = _build_degrade_note(parse_result, upload_file.filename)
+
         # 1) MySQL 落库（单事务），拿 doc_id + 每个 chunk 的 id
         doc_id, chunk_records = await run_in_threadpool(
             _persist_document, target_path.stem, upload_file.filename,
-            file_size, cleaned, chunks, kb_id,
+            file_size, cleaned, chunks, kb_id, degrade_note,
         )
 
         # 2) 向量化（首次调用会懒加载 bge-m3 模型，较慢）
@@ -138,6 +142,8 @@ async def upload_document(
         preview=preview,
         char_count=len(cleaned),
         chunk_count=len(chunks),
+        parser_name=parse_result.parser_name,
+        degraded=bool(parse_result.metadata.get("degraded")),
     )
 
 
@@ -147,6 +153,19 @@ def _embed_chunks(texts: list) -> list:
     return svc.embed_texts(texts)
 
 
+def _build_degrade_note(parse_result, filename: str | None) -> str | None:
+    """构造降级说明（记入 documents.parse_error）；未降级返回 None。"""
+    meta = parse_result.metadata or {}
+    if not meta.get("degraded"):
+        return None
+    note = (
+        f"已降级解析：{meta.get('primary_parser')} 失败，回退 {meta.get('backup_parser')}；"
+        f"原因：{meta.get('degrade_reason')}"
+    )
+    logger.warning("文档解析降级: 文件名=%s %s", filename, note)
+    return note
+
+
 def _persist_document(
     file_id: str,
     original_filename: str,
@@ -154,12 +173,14 @@ def _persist_document(
     cleaned: str,
     chunks: list,
     kb_id: int | None = None,
+    parse_error: str | None = None,
 ) -> tuple:
     """documents + chunks 单事务落库，返回 (doc_id, chunk_records)。
 
     一次性 add_all + flush，所有 chunk 的自增 id 一次填充，避免逐条
     flush 造成的 N 次往返。同步管线落库即解析完成（status=2）。
     若挂知识库，同一事务内维护 knowledge_bases.doc_count 冗余计数。
+    解析发生降级时，把降级原因写入 parse_error，便于排查与展示。
     """
     session = get_session()
     try:
@@ -176,6 +197,7 @@ def _persist_document(
             char_count=len(cleaned),
             chunk_count=len(chunks),
             status=2,  # 同步管线：解析完成
+            parse_error=parse_error,
             updated_at=now,
         )
         session.add(doc)

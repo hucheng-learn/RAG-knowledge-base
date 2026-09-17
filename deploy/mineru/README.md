@@ -31,7 +31,7 @@ curl.exe http://127.0.0.1:8001/v1/health
 ## 应用侧配置（.env）
 
 ```ini
-PDF_PARSER=mineru                              # pdfplumber（默认）或 mineru
+PDF_PARSER=mineru                              # pdfplumber（基线）或 mineru
 MINERU_API_URL=http://127.0.0.1:8001           # 服务根地址，不含 /v1
 MINERU_TIER=standard
 MINERU_TIMEOUT_SECONDS=300
@@ -41,7 +41,18 @@ MINERU_POLL_INTERVAL_SECONDS=3
 
 本地 MinerU 服务默认无鉴权，不配置 API Key。
 
-已验证能力（2026-09-18）：两页中文 PDF → 2 页、6 个结构化块，块类型识别正确（`paragraph_title` / `text` / `table`），表格以 Markdown 结构完整保留，端到端约 3 秒。
+## 支持的格式
+
+| 格式 | 解析器 |
+|---|---|
+| `.txt` / `.md` | 原生轻量解析（不需要 MinerU） |
+| `.pdf` | `PDF_PARSER` 决定：`pdfplumber` 或 `mineru`（选 mineru 时失败自动降级回 pdfplumber） |
+| `.doc` / `.docx` / `.ppt` / `.pptx` / `.xls` / `.xlsx` | 本地 MinerU |
+| `.png` / `.jpg` / `.jpeg` | 本地 MinerU（图片 OCR） |
+
+白名单由 `.env` 的 `ALLOWED_EXTENSIONS` 控制；MinerU 还支持 RTF/ODT/EPUB/HTML/CSV 等，需要时加进白名单与解析器注册表即可。
+
+已验证能力（2026-09-18）：两页中文 PDF → 结构化块含 `paragraph_title`/`text`/`table`、表格保留 Markdown 结构、约 3 秒；`docx` 结构化解析正常；`png` 图片 OCR 成功；停掉 MinerU 后 PDF 上传自动降级 `pdfplumber` 且不失败。
 
 ## 方式二：MinerU 官方配置
 

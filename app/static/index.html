@@ -340,6 +340,7 @@ async function uploadDoc() {
     out.style.display = "block";
     document.getElementById("up-result-text").textContent =
       `✅ 解析入库成功\n文件：${data.original_filename}\n大小：${data.file_size} 字节` +
+      `\n解析器：${data.parser_name || "unknown"}${data.degraded ? "（⚠️ 已降级解析）" : ""}` +
       `\n清洗后字符数：${data.char_count}\n分块数：${data.chunk_count}` +
       `\n预览：\n${data.preview || ""}`;
     showMsg(msgEl, "", true);

@@ -46,8 +46,9 @@ class Settings(BaseSettings):
     # ---------- 文件上传 ----------
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 20
-    # 允许的后缀名，逗号分隔字符串（.txt,.pdf）
-    allowed_extensions: str = ".txt,.pdf"
+    # 允许的后缀名，逗号分隔字符串
+    # 纯文本类由原生解析器处理；doc/docx/ppt/pptx/xls/xlsx 与图片由本地 MinerU 处理
+    allowed_extensions: str = ".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg"
 
     # ---------- 日志 ----------
     log_level: str = "INFO"

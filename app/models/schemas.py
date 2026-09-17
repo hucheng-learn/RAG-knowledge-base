@@ -22,10 +22,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
 
 class UploadResponse(BaseModel):
-    """上传接口响应：文件信息 + 解析结果。
-
-    preview / char_count 由解析模块（任务5/6）填充，本阶段返回 null。
-    """
+    """上传接口响应：文件信息 + 解析结果。"""
 
     file_id: str = Field(..., description="文件ID（当前为存储文件名；第二阶段接入 MySQL 后为数据库主键）")
     original_filename: str = Field(..., description="原始文件名（仅展示用，不参与磁盘路径）")
@@ -33,6 +30,8 @@ class UploadResponse(BaseModel):
     preview: Optional[str] = Field(None, description="清洗后文本预览片段（解析模块填充）")
     char_count: Optional[int] = Field(None, description="清洗后总字符数（解析模块填充）")
     chunk_count: Optional[int] = Field(None, description="分块数量（第二阶段起填充）")
+    parser_name: Optional[str] = Field(None, description="实际使用的解析器（txt/pdfplumber/mineru）")
+    degraded: Optional[bool] = Field(None, description="是否发生了降级解析（如 MinerU 失败回退 pdfplumber）")
 
 
 class KnowledgeBaseCreate(BaseModel):

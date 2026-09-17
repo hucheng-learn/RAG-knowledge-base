@@ -6,6 +6,7 @@
 """
 
 import json
+import mimetypes
 from pathlib import Path
 from time import perf_counter, sleep
 from urllib.parse import urljoin
@@ -18,6 +19,15 @@ from app.utils.exceptions import BizException
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def guess_mime_type(filename: str) -> str:
+    """按扩展名推断 MIME 类型；无法识别时退化为二进制流。
+
+    MinerU 支持 PDF / 图片 / DOC(X) / PPT(X) / XLS(X) 等多种输入，
+    因此不能像最初那样把 mime_type 写死为 application/pdf。
+    """
+    return mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 
 class MinerUParser(DocumentParser):
@@ -72,7 +82,9 @@ class MinerUParser(DocumentParser):
             json={
                 "filename": file_path.name,
                 "bytes": file_path.stat().st_size,
-                "mime_type": "application/pdf",
+                # MIME 按扩展名推断（支持 pdf/docx/pptx/xlsx/图片等多格式），
+                # 不能写死 application/pdf
+                "mime_type": guess_mime_type(file_path.name),
                 "purpose": "parse",
             },
         )
@@ -167,6 +179,12 @@ class MinerUParser(DocumentParser):
                 ))
             page_texts.append("\n\n".join(page_contents))
         text = markdown or "\n\n".join(page_texts)
+        # 兜底：structured_content 缺失但 markdown 成功时 page_texts 会是空列表，
+        # 而分块是按 page_texts 切分的 → 会产出 0 块（文档入库却检索不到）。
+        # 此时把全文当作单页，保证至少能分块入库。
+        if not page_texts and text:
+            page_texts = [text]
+            logger.warning("MinerU 未返回结构化分页，已按整篇单页兜底: 字符数=%d", len(text))
         return ParseResult(
             text=text, page_texts=page_texts, blocks=blocks,
             parser_name="mineru", parser_version="4.x",

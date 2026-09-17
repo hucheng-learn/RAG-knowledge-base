@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.14 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
+> 当前版本：v1.15 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -258,12 +258,15 @@ project_root/
 - ✅ 解析结果模型（`DocumentBlock` + `ParseResult` 结构化字段）、解析器选择配置、MinerU 4.0 V1 API 适配器、本地部署说明均已完成；
 - ✅ 官方 GPU 镜像 `mineru:4` 已构建完成（MinerU 4.0.1，含标准档模型权重，39.9GB）；
 - ✅ 新增项目自用 compose `deploy/docker-compose.mineru.yml`（宿主 **8001** → 容器 8000，只绑回环，避开本项目 8000 端口）；
-- ✅ 真实解析验收通过：两页中文 PDF（含标题/段落/表格）→ 2 页、6 个结构化块、**块类型识别正确**（`paragraph_title`/`text`/`table`）、表格以 Markdown 结构完整保留、端到端 **3.09s**；
-- ⚠️ 已知问题（待第九阶段）：
-  1. **首次解析慢**：api-server 用 vLLM 引擎，容器启动后第一次解析要等引擎 warmup（约 2~3 分钟），期间客户端可能遇到连接被拒；
-  2. **降级未接**：MinerU 不可用时不会回退 pdfplumber（`PDF_PARSER=mineru` 时上传会直接失败）；
-  3. `page_texts` 为空的风险：`structured_content` 拿不到但 markdown 成功时，`text` 有内容而 `page_texts=[]`，会导致分块 0 块；
-  4. `assets` 字段已声明但适配器尚未填充（图片/表格素材），`parser_version` 为硬编码 `4.x`。
+- ✅ **多格式支持**：`.txt/.md` 走原生轻量解析；`.pdf` 由 `PDF_PARSER` 决定；`.doc/.docx/.ppt/.pptx/.xls/.xlsx` 与 `.png/.jpg/.jpeg` 交给本地 MinerU；
+- ✅ **PDF 降级保护**：`PDF_PARSER=mineru` 时 MinerU 失败自动回退 pdfplumber，并在 `documents.parse_error` 记录降级原因 + 响应透出 `parser_name`/`degraded`；
+- ✅ MIME 按扩展名推断（不再写死 `application/pdf`）；`page_texts` 为空时按整篇单页兜底（避免分块 0 块）；
+- ✅ 真实验收：txt / md / pdf / docx / png **五种格式全部上传解析成功**（图片走 OCR）；停掉 MinerU 后 PDF 上传自动降级 pdfplumber 且不失败；
+- ⚠️ 仍待第九阶段：
+  1. **异步入库**：上传仍是同步阻塞，长文档会占住请求；需改 `pending → processing → completed/degraded/failed` + 独立 worker；
+  2. `degraded` 目前记录在 `parse_error` 文本里，第九阶段升级为独立状态值；
+  3. `assets`（图片/表格素材）未填充；`parser_version` 硬编码 `4.x`；
+  4. **首次解析慢**：MinerU 容器启动后首次解析需等 vLLM warmup（约 2~3 分钟），客户端应对瞬时连接错误做重试。
 
 ### 8.9 第九阶段：结构化分块、异步入库与解析降级（规划）
 
@@ -330,5 +333,6 @@ project_root/
 | 2026-09-18 | v1.12 | 新增开发规则第 9 条「文档同步约定（强制）」+ 项目根 `AGENTS.md`（协作约定，供不同 AI Agent 遵守）；新增 `deploy/docker-compose.mineru.yml`（MinU V1 API 服务，宿主 8001→容器 8000，GPU 预留，只绑回环）；配置清理：删除死配置 `HOST`/`PORT`（uvicorn 命令行决定）与无用 `MINERU_API_KEY`（本地服务无鉴权），`.env` 补上 MinerU 配置块；第八阶段真实 PDF 验收通过（2 页 / 6 块 / 类型识别正确含 table / 3.09s） | 让协作者与不同 Agent 都遵守"改动必须回写文档"；打通 MinerU 本地解析并清理配置噪音 |
 | 2026-09-18 | v1.13 | README 全量对齐：修正文档路径（根目录 → `docs/`）、补第八阶段进度、补目录结构/接口/环境说明、新增「文档解析器（pdfplumber/MinerU）」章节；规则第 9 条补充 **README 必检项**（进度/启动/接口表/目录/依赖环境/开关说明） | README 是外部读者第一入口，必须与代码和计划保持同步 |
 | 2026-09-18 | v1.14 | 协作约定调整：规则第 7 条改为**小步提交**（改动不攒、做完一小块立即提交 dev）；`AGENTS.md` 精简重写（去除冗余说明，保留提交/文档矩阵、下载网络、环境、开发四节） | 降低协作约定的阅读成本，提高执行率 |
+| 2026-09-18 | v1.15 | 第八阶段收尾：**多格式支持**（txt/md 原生；pdf 由 `PDF_PARSER` 决定；doc/docx/ppt/pptx/xls/xlsx/png/jpg/jpeg 交 MinerU）；**PDF 降级保护**（`FallbackDocumentParser`，MinerU 失败回退 pdfplumber + 记 `parse_error` + 响应透出 `parser_name`/`degraded`）；MIME 按扩展名推断；`page_texts` 空时整篇兜底；前端展示解析器与降级；五种格式真机验收通过（含图片 OCR） | 让"常见文档都能入库"可用，并消除 MinerU 单点故障导致上传失败的风险 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

@@ -15,7 +15,7 @@
 - 第六阶段：工程稳定性优化 —— 待开发
 - 第七阶段：容器部署 —— 待开发
 - 第八阶段：本地 MinerU 部署与结构化解析 —— 🟡 进行中
-  （镜像已构建、适配器已完成、真实 PDF 解析验收通过；**降级回退与异步入库待第九阶段**）
+  （镜像已构建、多格式解析 + PDF 降级保护已完成并验收；**异步入库待第九阶段**）
 - 第九~十一阶段：结构化分块/异步入库/解析降级、Ollama 全链路私有化、对照实验报告 —— 待开发
 
 ## 本地启动
@@ -88,14 +88,20 @@ uvicorn app.main:app --reload
 RAG 问答（SSE 流式回答 + 溯源卡片）。
 由后端同源托管，启动后直接访问 http://127.0.0.1:8000/ 即可。
 
-## 文档解析器（pdfplumber / MinerU）
+## 支持的文件格式与解析器
 
-PDF 解析器由 `.env` 的 `PDF_PARSER` 切换，业务代码不感知具体实现：
+| 格式 | 解析器 | 说明 |
+|---|---|---|
+| `.txt` / `.md` | 原生轻量解析 | 无需外部服务，UTF-8/GBK 自适应 |
+| `.pdf` | `PDF_PARSER` 决定 | `pdfplumber`（基线，默认）或 `mineru`（结构化：标题/段落/表格/页码） |
+| `.doc` / `.docx` | 本地 MinerU | 结构化解析，含标题层级与表格 |
+| `.ppt` / `.pptx` / `.xls` / `.xlsx` | 本地 MinerU | 由 MinerU（DocVortex）提供解析能力 |
+| `.png` / `.jpg` / `.jpeg` | 本地 MinerU | 图片 OCR 识别文字后入库 |
 
-- `pdfplumber`（默认）：轻量基线，无需额外服务；
-- `mineru`：本地 MinerU 4.0 服务，能拿到**结构化块**（标题/段落/表格）与页码，适合复杂版面、表格、扫描件；需先启动 `deploy/docker-compose.mineru.yml`。
-
-**注意**：目前 MinerU 失败**不会自动回退** pdfplumber（`PDF_PARSER=mineru` 时服务不可用会导致上传失败），降级逻辑在第九阶段实现。
+- 白名单由 `.env` 的 `ALLOWED_EXTENSIONS` 控制；
+- **降级保护**：`PDF_PARSER=mineru` 时若 MinerU 不可用，PDF 会自动回退 `pdfplumber` 并在 `documents.parse_error` 记录降级原因（上传不会失败）；响应里的 `parser_name` / `degraded` 字段会告知实际使用的解析器；
+- 使用 MinerU 解析的格式（docx/图片等）需要先启动 MinerU 服务；
+- 目前上传是**同步阻塞**的（长文档会占住请求），异步入库在第九阶段实现。
 
 ## 环境注意
 

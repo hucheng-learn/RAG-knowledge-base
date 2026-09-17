@@ -1,35 +1,69 @@
 """文档解析器子包：通过 DocumentParser 抽象屏蔽解析器差异。
 
-对外只暴露 get_parser() 工厂：按文件后缀名返回对应解析器实例。
-新增格式时：写一个解析器类 → 在 _PARSERS 注册 → 上层零改动。
+对外只暴露 `get_parser()` 工厂，按文件后缀名返回解析器实例：
+
+- **纯文本类**（`.txt` / `.md`）→ 轻量原生解析器（无需外部服务）；
+- **PDF**（`.pdf`）→ 由 `.env` 的 `PDF_PARSER` 决定：`pdfplumber`（基线）或 `mineru`；
+  选 `mineru` 时自动包一层**降级**（MinerU 失败回退 pdfplumber）；
+- **复杂格式**（`.doc/.docx/.ppt/.pptx/.xls/.xlsx`）与**图片**（`.png/.jpg/.jpeg`）
+  → 本地 MinerU 结构化解析（MinerU 由 DocVortex 提供多格式解析能力）。
+
+新增格式：写解析器类 → 在 `_TEXT_PARSERS` 或 `_MINERU_EXTENSIONS` 登记 → 上层零改动。
 """
 
-from app.service.parser.base import DocumentBlock, DocumentParser, ParseResult
-from app.service.parser.pdf_parser import PdfParser
-from app.service.parser.mineru_parser import MinerUParser
-from app.service.parser.txt_parser import TxtParser
 from app.config.settings import get_settings
+from app.service.parser.base import DocumentBlock, DocumentParser, ParseResult
+from app.service.parser.fallback_parser import FallbackDocumentParser
+from app.service.parser.mineru_parser import MinerUParser
+from app.service.parser.pdf_parser import PdfParser
+from app.service.parser.txt_parser import TxtParser
 from app.utils.exceptions import BizException
 
-# 后缀名 → 解析器类的注册表（新增格式在此登记）
-_PARSERS: dict[str, type[DocumentParser]] = {
+__all__ = [
+    "DocumentBlock",
+    "DocumentParser",
+    "ParseResult",
+    "FallbackDocumentParser",
+    "MinerUParser",
+    "PdfParser",
+    "TxtParser",
+    "get_parser",
+]
+
+# 纯文本格式 → 原生轻量解析
+_TEXT_PARSERS: dict[str, type[DocumentParser]] = {
     ".txt": TxtParser,
-    ".pdf": PdfParser,
+    ".md": TxtParser,
 }
+
+# 复杂二进制格式与图片 → 本地 MinerU 结构化解析
+_MINERU_EXTENSIONS: frozenset[str] = frozenset({
+    ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
+    ".png", ".jpg", ".jpeg",
+})
 
 
 def get_parser(extension: str) -> DocumentParser:
     """按文件后缀名获取解析器实例。
 
     Args:
-        extension: 小写后缀名（含点，如 ".txt"）。
+        extension: 小写后缀名（含点，如 ".pdf"）。
 
     Raises:
         BizException: 没有注册对应解析器。
     """
-    parser_cls = _PARSERS.get(extension)
-    if extension == ".pdf" and get_settings().pdf_parser == "mineru":
-        parser_cls = MinerUParser
-    if parser_cls is None:
-        raise BizException(f"没有对应的解析器: {extension}")
-    return parser_cls()
+    parser_cls = _TEXT_PARSERS.get(extension)
+    if parser_cls is not None:
+        return parser_cls()
+
+    if extension == ".pdf":
+        # PDF 是「基线 vs MinerU」的对比开关（第十一阶段实验变量），
+        # 选 MinerU 时包一层降级，避免 MinerU 故障导致上传整体失败
+        if get_settings().pdf_parser == "mineru":
+            return FallbackDocumentParser(MinerUParser(), PdfParser())
+        return PdfParser()
+
+    if extension in _MINERU_EXTENSIONS:
+        return MinerUParser()
+
+    raise BizException(f"没有对应的解析器: {extension}")
