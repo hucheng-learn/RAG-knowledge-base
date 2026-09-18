@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
     llm_retry_backoff_seconds: float = 1.0
     rag_max_query_chars: int = 2000
+    rate_limit_requests: int = 60
+    rate_limit_window_seconds: int = 60
 
     # ---------- 本地 MinerU ----------
     # 本地 MinerU 服务默认无鉴权，不设 API Key

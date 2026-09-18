@@ -9,6 +9,7 @@
 """
 
 import asyncio
+from time import perf_counter
 from typing import AsyncIterator, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -61,9 +62,11 @@ async def rag_answer(
     """
     if len(query) > settings.rag_max_query_chars:
         raise BizException(f"问题长度超过限制（最多 {settings.rag_max_query_chars} 个字符）")
+    started = perf_counter()
     # 1. 问题向量化（GPU）
     svc = get_embedding_service()
     qv = await run_in_threadpool(svc.embed_query, query)
+    logger.info("RAG阶段: embedding_ms=%.1f query_chars=%d", (perf_counter() - started) * 1000, len(query))
 
     # 2. 确保集合存在（Milvus 数据卷重置后集合会丢：
     #    不存在则重建空集合，让检索走"未检索到"友好分支而不是抛原始错误）
@@ -74,6 +77,7 @@ async def rag_answer(
     if kb_id is not None:
         doc_ids = await run_in_threadpool(_get_kb_doc_ids, kb_id)
     hits = await run_in_threadpool(milvus_search, qv, top_k, doc_ids)
+    logger.info("RAG阶段: retrieval_ms=%.1f hits=%d top_k=%d", (perf_counter() - started) * 1000, len(hits), top_k)
 
     # 2c. 召回完全为空（Milvus 只要 scope 里有向量就必返回 top_k）→ 分级兜底：
     if not hits:
@@ -130,6 +134,10 @@ async def rag_answer(
     # 4b. 组装上下文 + 系统提示词
     context = "\n\n".join(f"[来源{t['idx']}] {t['content']}" for t in trace)
     user_msg = f"参考资料：\n{context}\n\n问题：{query}"
+    logger.info(
+        "RAG阶段: trace_count=%d context_chars=%d total_pre_llm_ms=%.1f",
+        len(trace), len(context), (perf_counter() - started) * 1000,
+    )
 
     # 5. 先发溯源，再流式回答
     yield {"event": "start", "data": trace}

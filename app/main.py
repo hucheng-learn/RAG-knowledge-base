@@ -14,6 +14,7 @@
 import time
 import asyncio
 import uuid
+from collections import defaultdict, deque
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,6 +35,7 @@ from app.service.document_worker import run_document_worker
 setup_logging()
 logger = get_logger(__name__)
 settings = get_settings()
+_rate_limit_buckets: dict[str, deque[float]] = defaultdict(deque)
 
 
 @asynccontextmanager
@@ -86,6 +88,19 @@ async def request_log_middleware(request: Request, call_next) -> Response:
     start = time.perf_counter()
     trace_id = request.headers.get("X-Trace-Id") or uuid.uuid4().hex
     request.state.trace_id = trace_id
+    if request.url.path.startswith("/api/"):
+        now = time.monotonic()
+        client_key = request.client.host if request.client else "unknown"
+        bucket = _rate_limit_buckets[client_key]
+        cutoff = now - settings.rate_limit_window_seconds
+        while bucket and bucket[0] <= cutoff:
+            bucket.popleft()
+        if len(bucket) >= settings.rate_limit_requests:
+            logger.warning("请求限流: trace_id=%s client=%s path=%s", trace_id, client_key, request.url.path)
+            response = success(data=None, msg="请求过于频繁，请稍后重试", code=429, status_code=429)
+            response.headers["X-Trace-Id"] = trace_id
+            return response
+        bucket.append(now)
     try:
         response = await call_next(request)
     except Exception:
