@@ -113,4 +113,4 @@ def init_db() -> None:
 
 # ---------------- 模型注册（必须最后导入） ----------------
 
-from app.models.orm import chunk, document, knowledge_base  # noqa: E402,F401
+from app.models.orm import chunk, document, document_task, knowledge_base  # noqa: E402,F401

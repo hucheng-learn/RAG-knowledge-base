@@ -63,3 +63,19 @@ CREATE TABLE chunks (
   CONSTRAINT fk_chunks_doc FOREIGN KEY (doc_id) REFERENCES documents(id),
   CONSTRAINT fk_chunks_kb  FOREIGN KEY (kb_id)  REFERENCES knowledge_bases(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='检索片段（文档切分后的chunk，是检索和嵌入的最小单元）';
+
+-- 异步文档处理任务表：持久化 worker 领取、重试和失败状态
+CREATE TABLE document_tasks (
+  id           INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  doc_id       INT NOT NULL UNIQUE COMMENT '文档ID',
+  status       TINYINT NOT NULL DEFAULT 0 COMMENT '任务状态: 0-待处理 1-处理中 2-成功 3-失败',
+  attempts     INT NOT NULL DEFAULT 0 COMMENT '已尝试次数',
+  max_attempts INT NOT NULL DEFAULT 3 COMMENT '最大尝试次数',
+  next_run_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次执行时间',
+  locked_at    DATETIME NULL COMMENT '领取时间',
+  last_error   TEXT NULL COMMENT '最近一次错误',
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at   DATETIME NULL COMMENT '更新时间',
+  KEY ix_task_status_run (status, next_run_at),
+  CONSTRAINT fk_document_tasks_doc FOREIGN KEY (doc_id) REFERENCES documents(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='异步文档处理任务';

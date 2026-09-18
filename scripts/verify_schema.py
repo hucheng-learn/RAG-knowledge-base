@@ -14,7 +14,7 @@ conn = pymysql.connect(host="127.0.0.1", port=3306, user="root",
 cur = conn.cursor()
 
 all_ok = True
-for table in ["knowledge_bases", "documents", "chunks"]:
+for table in ["knowledge_bases", "documents", "chunks", "document_tasks"]:
     # ORM 列
     orm_cols = set(Base.metadata.tables[table].columns.keys())
     # 实际库列

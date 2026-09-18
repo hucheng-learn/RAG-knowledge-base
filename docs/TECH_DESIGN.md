@@ -235,6 +235,10 @@ documents + chunks **同一事务**：`add(doc) → flush()（拿自增 id）→
 
 第九阶段第一步新增 `chunks.block_type` 与 `chunks.heading_path`：前者记录 MinerU 结构块类型，后者以 JSON 数组字符串保存标题层级。字段允许为空，保证 txt/pdfplumber 等无结构解析结果及历史数据兼容；结构化分块器接入后再填充。
 
+第九阶段异步任务使用独立的 `document_tasks` 表，不把重试次数和锁信息混入 `documents`：一个文档对应一个任务（`doc_id` 唯一），任务状态、`attempts`、`next_run_at`、`locked_at`、`last_error` 均可持久化。worker 后续按 `(status, next_run_at)` 索引领取任务，进程重启后可回收超时的 `processing` 任务并继续处理。
+
+任务领取使用数据库事务和行锁：按 `next_run_at, id` 取最早任务，MySQL 8 使用 `FOR UPDATE SKIP LOCKED`，领取时原子更新为 `processing`、递增 `attempts` 并写 `locked_at`。超过锁超时的 `processing` 任务可被重新领取；处理失败但未达到 `max_attempts` 时按退避时间回到 `pending`，达到上限才进入 `failed`，并同步把文档标记为失败。这样 worker 进程崩溃不会永久丢任务，多 worker 也不会同时消费同一任务。
+
 ---
 
 ## 7. 日志与可观测性
