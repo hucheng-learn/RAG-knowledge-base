@@ -18,7 +18,7 @@
 - **第九阶段：结构化分块、异步入库与解析降级 —— ✅ 已完成**（结构化分块、异步 worker、状态轮询、降级状态、SHA-256/解析缓存、assets manifest 均已接入）
 - **第六阶段：工程稳定性优化 —— ✅ 已完成**（trace_id、LLM 重试、字符/token 输入保护、进程内限流、RAG 阶段耗时日志）
 - **第十阶段：Ollama 本地 LLM 与全链路私有化 —— ✅ 已完成**（`LLM_PROVIDER` 切换与 qwen3 原生流式接口）
-- 第七阶段：容器部署 —— ✅ 已完成（后端镜像与统一 Compose）
+- 第七阶段：容器部署 —— ✅ 已完成（后端镜像与统一 Compose；Ollama/bge-m3 改为挂载宿主本地模型，离线免下载）
 - 第十一阶段：pdfplumber / MinerU 对照实验与面试报告 —— ⏸ 延期，不纳入本轮
 
 > 阶段详情与接续指引见 `docs/PROJECT_PLAN.md`（8.0 总览 / 8.0.1 接续指引）。
@@ -55,15 +55,26 @@ uvicorn app.main:app --reload
 # 如需局域网/其他设备访问，改用：uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-需要一键启动完整本地栈时使用统一 Compose（会启动独立的 MySQL、Milvus、MinerU、Ollama 和后端）：
+需要一键启动完整本地栈（Docker）时使用统一 Compose（会启动独立的 MySQL、Milvus、MinerU、Ollama 和后端）。
+
+**前置：宿主机已备好两份本地权重**，compose 直接挂载它们，**不联网下载、不需要 `ollama pull`**：
+
+| 用途 | 默认宿主路径 | 内容 |
+| --- | --- | --- |
+| Ollama LLM | `<工作区>/models` | Ollama 模型仓库（含 `qwen3:8b`，blobs + manifests） |
+| Embedding | `<工作区>/bge-m3` | bge-m3 权重目录（sentence-transformers 格式，1024 维） |
+
+路径不同时用 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖（写在 `deploy/.env`，或用 shell 环境变量）。完整说明见 `deploy/README.md`。
 
 ```powershell
-docker compose -f deploy/docker-compose.yml up -d --build
-docker compose -f deploy/docker-compose.yml exec ollama ollama pull qwen3:8b
-docker compose -f deploy/docker-compose.yml ps
+cd D:\program_data\deepseek\RAG-project
+docker compose -f deploy/docker-compose.yml build backend   # 构建后端镜像（可选，up --build 也会构建）
+docker compose -f deploy/docker-compose.yml up -d --build   # 构建并启动全栈
+docker compose -f deploy/docker-compose.yml ps              # 查看状态（rag-ollama 应为 healthy）
+docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qwen3:8b 来自本地模型仓库
 ```
 
-统一 Compose 与已有独立 Milvus/MinerU 服务会争用端口；切换前先停止冲突服务，或通过 `.env` 中的 `*_HOST_PORT` 覆盖端口。
+统一 Compose 与已有独立 Milvus/MinerU 服务会争用端口；切换前先停止冲突服务，或通过环境变量 `*_HOST_PORT` 覆盖端口。
 
 启动后访问：
 
@@ -91,7 +102,7 @@ docker compose -f deploy/docker-compose.yml ps
 | ---------- | --------------------------------------------------------------------------------------- |
 | `app/`     | 后端代码（config / routers / service / models / utils / static）                              |
 | `docs/`    | `PROJECT_PLAN.md`（计划与进度，唯一事实来源）、`TECH_DESIGN.md`（技术方案与面试要点）                             |
-| `deploy/`  | `docker-compose.milvus.yml`（Milvus）、`docker-compose.mineru.yml`（MinerU）、`mineru/`（部署说明） |
+| `deploy/`  | `docker-compose.yml`（全栈一键启动，含本地模型挂载）、`docker-compose.milvus.yml`（Milvus）、`docker-compose.mineru.yml`（MinerU）、`mineru/`（部署说明） |
 | `sql/`     | `schema.sql`——三张表建表 SQL（权威版本）                                                           |
 | `scripts/` | `verify_schema.py`（ORM↔DB 字段校验）、`rebuild_vectors.py`（向量重建/对账补偿）                         |
 | `tests/`   | 回归测试（解析基线等）                                                                             |
@@ -124,4 +135,5 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 - **Python 环境**：使用 conda 环境 **`rag_kb`**（含 GPU torch）；
 - **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
 - **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
-- **Docker**：可用 `deploy/docker-compose.yml` 一键启动全栈，也可继续使用 Milvus/MinerU 独立 compose；切换两种方式前注意端口冲突。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连。
+- **Docker**：可用 `deploy/docker-compose.yml` 一键启动全栈（模型直接挂载宿主本地目录，离线可用；模型路径由 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 指定），也可继续使用 Milvus/MinerU 独立 compose；切换两种方式前注意端口冲突。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连；
+- **容器内的推理设备**：Embedding 在容器里默认 **CPU**（`EMBEDDING_DEVICE=cpu`，镜像内是 PyPI 默认 torch，本机 RTX 5080 属 Blackwell 架构需 cu128 及以上）；Ollama 与 MinerU 共用一张显卡，显存不足时按 `deploy/README.md` 的说明关掉 Ollama 的 GPU 预留。

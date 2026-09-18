@@ -1,6 +1,12 @@
 # 企业知识库 RAG 全栈本地部署。
-# 首次使用前：准备 ./models/bge-m3，并执行
-#   docker compose -f deploy/docker-compose.yml exec ollama ollama pull qwen3:8b
+# 模型全部使用宿主机已备好的本地权重：不联网下载、不需要 ollama pull。
+#   Ollama 模型仓库：<工作区>/models   —— 内含 registry.ollama.ai/library/qwen3/{8b,latest} 与 blobs
+#   bge-m3 权重：    <工作区>/bge-m3   —— sentence-transformers 目录（1024 维）
+# 两个路径默认按「本文件所在目录」上溯两级解析（deploy → RAG-project → 工作区根目录）；
+# 目录结构不同时用环境变量覆盖（建议写绝对路径）：
+#   OLLAMA_MODELS_HOST_PATH / EMBEDDING_MODEL_HOST_PATH
+# 首次构建 + 启动：
+#   docker compose -f deploy/docker-compose.yml up -d --build
 # 已有分开的 Milvus/MinerU compose 时，先停止它们，避免端口冲突。
 
 services:
@@ -85,8 +91,29 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${OLLAMA_HOST_PORT:-11434}:11434"
+    environment:
+      # 模型仓库即下面挂进来的宿主目录，容器内无需再 ollama pull
+      OLLAMA_MODELS: /root/.ollama/models
+      # 模型常驻内存/显存时长：qwen3:8b 有 5.2GB，间隔短时避免每次问答重新加载
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
     volumes:
+      # 命名卷只放密钥/历史等可写状态；模型目录单独挂宿主本地仓库（qwen3:8b 已在其中）
       - ollama_data:/root/.ollama
+      - ${OLLAMA_MODELS_HOST_PATH:-../../models}:/root/.ollama/models
+    healthcheck:
+      # 模型能真的列出来才算健康——顺带验证宿主模型目录挂载正确
+      test: ["CMD-SHELL", "ollama show ${LLM_MODEL:-qwen3:8b} >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
 
   mineru:
     image: mineru:4
@@ -133,6 +160,7 @@ services:
       MYSQL_DB: ${MYSQL_DB:-rag_knowledge}
       MILVUS_HOST: milvus
       MILVUS_PORT: 19530
+      # 容器内固定路径，由下面的宿主目录挂载提供（离线加载，不联网下载）
       EMBEDDING_MODEL: /models/bge-m3
       EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
@@ -148,7 +176,8 @@ services:
     volumes:
       - ../uploads:/app/uploads
       - ../logs:/app/logs
-      - ${EMBEDDING_MODEL_HOST_PATH:-../models/bge-m3}:/models/bge-m3:ro
+      # bge-m3 权重来自宿主本地目录（默认工作区根下 bge-m3），只读挂载
+      - ${EMBEDDING_MODEL_HOST_PATH:-../../bge-m3}:/models/bge-m3:ro
     depends_on:
       mysql:
         condition: service_healthy
@@ -157,7 +186,7 @@ services:
       minio:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
       mineru:
         condition: service_started
     healthcheck:

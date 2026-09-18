@@ -1,28 +1,80 @@
 # 全栈容器部署
 
-`docker-compose.yml` 会启动 MySQL、Milvus、MinerU、Ollama 和后端。第十一阶段对照实验不包含在本部署流程内。
+`docker-compose.yml` 会启动 MySQL、Milvus（etcd + MinIO + standalone）、MinerU、Ollama 和后端。
+模型全部读取**宿主机已有的本地权重**：不需要联网下载，也不需要 `ollama pull`。
 
 ## 前置条件
 
-- Docker Desktop 已启动，GPU 机器安装 NVIDIA Container Toolkit；
-- 本地已有 `mineru:4` 镜像；
-- 将本地 `bge-m3` 权重放到 `models/bge-m3`，或通过 `EMBEDDING_MODEL_HOST_PATH` 指定目录；
-- Ollama 模型下载需要联网，默认使用 `qwen3:8b`。
+1. **Docker Desktop 已启动**（WSL2 后端）；GPU 机器需已能在容器内使用 NVIDIA GPU（与 `docker-compose.mineru.yml` 同一套运行时）；
+2. **本地已有 `mineru:4` 镜像**（约 39.9GB，构建方式见 `mineru/README.md`）；
+3. **宿主机已备好两份模型权重**，默认路径如下（相对本文件上溯两级即工作区根目录）：
 
-## 启动
+   | 用途 | 默认宿主路径 | 内容 |
+   | --- | --- | --- |
+   | Ollama LLM | `<工作区>/models` | `manifests/registry.ollama.ai/library/qwen3/{8b,latest}` + `blobs/`（qwen3:8b，约 4.9GB） |
+   | Embedding | `<工作区>/bge-m3` | sentence-transformers 目录（`pytorch_model.bin` / tokenizer / `1_Pooling/` 等，约 4.3GB，1024 维） |
+
+   模型放在别的目录时，用环境变量覆盖（**建议写绝对路径**）。compose 的变量插值只读 `deploy/.env` 与当前 shell 环境变量——`RAG-project/.env` 是**应用**配置，不参与 compose 插值（已实测确认）：
+
+   ```dotenv
+   # deploy/.env（可选，不放也能用默认路径）
+   OLLAMA_MODELS_HOST_PATH=D:\models\ollama
+   EMBEDDING_MODEL_HOST_PATH=D:\models\bge-m3
+   ```
+
+4. 首次运行要从 docker.io 拉取基础镜像（`mysql` / `etcd` / `minio` / `milvus` / `ollama`）：**需要代理**；后端镜像自身的基础镜像走 DaoCloud + 清华 PyPI，不需要代理。
+
+## 构建 + 启动
 
 ```powershell
+cd D:\program_data\deepseek\RAG-project
+
+# 1）（可选）单独构建后端镜像，便于看清构建日志
+docker compose -f deploy/docker-compose.yml build backend
+
+# 2）构建并启动全栈（只有 backend 走 Dockerfile 构建，其余用现成镜像）
 docker compose -f deploy/docker-compose.yml up -d --build
-docker compose -f deploy/docker-compose.yml exec ollama ollama pull qwen3:8b
+
+# 3）查看状态：rag-ollama 显示 healthy 才说明本地 qwen3:8b 已被正确识别
 docker compose -f deploy/docker-compose.yml ps
 ```
 
-后端地址：`http://127.0.0.1:8000`。MinerU 首次启动需要等待模型 warmup。
+启动后：
 
-## 停止
+- 前端页面：<http://127.0.0.1:8000/>；健康检查：<http://127.0.0.1:8000/health>
+- MinerU 首次启动要等 vLLM warmup（约 2~3 分钟），期间 PDF 上传会自动降级到 pdfplumber，不会失败。
+
+## 验证模型确实来自本地
 
 ```powershell
-docker compose -f deploy/docker-compose.yml down
+# Ollama：应列出 qwen3:8b（来自宿主 models 目录，不是 pull 下来的）
+docker compose -f deploy/docker-compose.yml exec ollama ollama list
+
+# 后端：应输出 /models/bge-m3 cpu（容器内生效配置）
+docker compose -f deploy/docker-compose.yml exec backend python -c "from app.config.settings import get_settings as g; s=g(); print(s.embedding_model, s.embedding_device, s.llm_model)"
 ```
 
-默认 MySQL 宿主端口是 `3307`，避免与本机 MySQL80 的 `3306` 冲突；Milvus、MinerU 和 Ollama 使用现有开发端口。若端口被占用，可在项目 `.env` 中设置 `*_HOST_PORT` 覆盖。
+## 常用运维命令
+
+```powershell
+docker compose -f deploy/docker-compose.yml logs -f backend   # 后端日志
+docker compose -f deploy/docker-compose.yml logs -f ollama    # Ollama 日志（显存/加载失败看这里）
+docker compose -f deploy/docker-compose.yml stop              # 停止
+docker compose -f deploy/docker-compose.yml down              # 删容器与网络（命名卷数据保留）
+docker compose -f deploy/docker-compose.yml down -v           # 连命名卷一起删（MySQL/Milvus 数据清零）
+```
+
+## 端口与冲突
+
+默认宿主端口：后端 8000、MinerU 8001、MySQL 3307（避开本机 MySQL80 的 3306）、Milvus 19530/9091、MinIO 9000/9001、Ollama 11434。
+
+统一 compose 与独立 compose（`docker-compose.milvus.yml` / `docker-compose.mineru.yml`）**不能同时运行**，切换前先 `down` 掉另一方；独立 compose 的数据在 `deploy/volumes/`（bind 目录），`down` 不会删除。
+
+覆盖端口与模型路径：在 `deploy/.env` 里写 `BACKEND_HOST_PORT` / `MINERU_HOST_PORT` / `MILVUS_HOST_PORT` / `OLLAMA_HOST_PORT` / `MYSQL_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH`，或直接作为 shell 环境变量传入。
+
+## 资源与已知限制
+
+- 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建（开发库里已有的数据在 `deploy/volumes/` 的独立 compose 下，两者不共享）；
+- **Embedding 默认 CPU 推理**（`EMBEDDING_DEVICE=cpu`）：镜像里装的是 PyPI 默认 torch，本机 RTX 5080 是 Blackwell 架构（需 cu128 及以上），因此不作为默认；要用 GPU 需自行替换镜像里的 torch 底座；
+- **Ollama 与 MinerU 共用一张显卡**：MinerU 先 warmup 占用显存，Ollama 再加载 qwen3:8b（约 5.2GB）。若 Ollama 报显存不足或明显回退到 CPU，删掉 `ollama:` 服务里的 `deploy.resources` 段落即可让它只走 CPU（或反过来给 MinerU 降档）；
+- 模型目录是 Windows bind mount，首次加载 qwen3:8b 会比镜像内层慢一些；`OLLAMA_KEEP_ALIVE` 默认已设为 `30m`，避免间隔稍长就重新加载。

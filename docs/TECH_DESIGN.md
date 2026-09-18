@@ -563,6 +563,48 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 
 ---
 
+## 14. 容器化部署与离线模型挂载（第七阶段）
+
+### 14.1 部署拓扑与依赖门槛
+
+`deploy/docker-compose.yml` 一条命令拉起六个服务：MySQL（元数据）、etcd + MinIO + Milvus standalone（向量库）、MinerU（解析）、Ollama（本地 LLM）、后端（FastAPI）。依赖用**健康检查**串起来，而不是只判 `service_started`：
+
+| 服务 | 健康检查 | 为什么需要 |
+|---|---|---|
+| mysql | `mysqladmin ping` | ORM 建表依赖真实可连，否则后端启动即报连接失败 |
+| etcd / minio | `etcdctl endpoint health` / MinIO health 接口 | Milvus 启动前必须就绪 |
+| ollama | `ollama show qwen3:8b` | **模型能列出来才算就绪**，顺带验证宿主模型目录挂载正确（比 `service_started` 强很多） |
+| backend | `/health` HTTP 探针 | 前端与调用方的可用性判定 |
+
+### 14.2 模型来源：为什么用 bind mount，而不是 `ollama pull` / `COPY` 进镜像
+
+| 方案 | 优点 | 代价 |
+|---|---|---|
+| 容器内 `ollama pull`（原方案） | 镜像最小 | 每次部署都要联网重下 4.9GB；客户内网/断网直接不可用 |
+| 把权重 `COPY` 进自定义镜像 | 启动即用、镜像自包含 | 多 5GB 层、换模型要重建镜像；权重与代码强耦合 |
+| **宿主目录 bind mount（本方案）** | 离线可用、模型与镜像解耦、换模型只换目录 | 依赖宿主目录约定；Windows bind mount 首次加载比镜像层慢 |
+
+后端侧同一理由：`EMBEDDING_MODEL=/models/bge-m3`（容器内固定路径）+ 宿主 bge-m3 目录只读挂载，`sentence-transformers` 直接读本地目录，全链路不触发 HuggingFace 下载。
+
+### 14.3 路径解析与配置边界（最容易踩的坑）
+
+- `volumes` 的**相对路径以 compose 文件所在目录为基准**，不是执行命令时的 cwd：因此默认写 `../../models`、`../../bge-m3`（deploy → RAG-project → 工作区根）；
+- compose 的**变量插值只读 `deploy/.env` 与 shell 环境变量**（工程目录 = compose 文件目录，工程名即 `deploy`）；`RAG-project/.env` 是应用配置、**不参与插值**——已实测：在其中写入变量不影响 `docker compose config` 的输出。职责分离：`.env` 管应用行为，`deploy/.env` 管编排参数；
+- 模型换目录用 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖，**建议写绝对路径**，避免相对基准再次出错。
+
+### 14.4 读写边界
+
+- Ollama：`/root/.ollama` 仍挂命名卷（密钥、历史等可写状态），只把 `/root/.ollama/models` 换成宿主目录 → 已有权重直接用，后续 `ollama pull` 新模型也仍然可写；
+- bge-m3：`:ro` 只读。推理只读不写，只读挂载可避免容器污染宿主权重。
+
+### 14.5 已知代价与显存竞争
+
+- Embedding 容器内默认 **CPU**（`EMBEDDING_DEVICE=cpu`）：镜像装的是 PyPI 默认 torch，本机 RTX 5080 属 Blackwell（sm_120），需要 cu128 及以上的 torch/CUDA 组合，故不把 GPU 作为默认——避免"看着配了 GPU、实际起不来"；
+- Ollama 与 MinerU **共用一张显卡**：MinerU 是 vLLM，启动 warmup（约 2~3 分钟）时一次性预占显存，Ollama 之后再加载 qwen3:8b（约 5.2GB）。显存不足时优先牺牲 Ollama 的 GPU 预留（删 `deploy.resources` 段落），而不是解析链路；
+- 模型文件位于 Windows bind mount，mmap 读取性能不如镜像层，故设 `OLLAMA_KEEP_ALIVE=30m` 让模型常驻，用显存换掉"间隔稍长就重新加载 5.2GB"。
+
+---
+
 > 更新记录：v0.2 2026-08-21 覆盖第一、二阶段技术方案与面试要点；移除运维/环境层面的琐碎问题记录（本文档只沉淀有讲解价值的代码设计与面试要点）。
 > v0.3 2026-08-27 新增第三阶段：Embedding 抽象、Milvus collection 设计、双写一致性落地、环境工程要点。
 > v0.4 2026-08-28 新增第四阶段：知识库接口设计、删除级联顺序、批量删除不触发 ORM 级联、Milvus 删除异步语义。
@@ -572,3 +614,4 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 > v0.8 2026-09-18 第十三章补充：多格式分派（txt/md 原生、pdf 可切换、office/图片走 MinerU）、FallbackDocumentParser 降级设计与 except 变量作用域陷阱、MIME 按扩展名推断、五种格式实测结果。
 > v0.9 2026-09-18 新增 2.4 同名文件冲突策略决策：由「一律拒绝」改为「显式覆盖」（`overwrite` 参数 + 前端确认），含四种策略对比、先写后删的顺序约束、doc_count 与审计影响。
 > v1.0 2026-09-18 补充第六阶段稳定性保护、第十阶段 Ollama 原生流式协议，以及第九阶段异步 worker/缓存/assets 的收口结论。
+> v1.1 2026-09-18 新增第十四章：容器化部署与离线模型挂载——服务依赖门槛（健康检查）、三种模型来源方案取舍、bind mount 相对路径基准与 compose 插值边界（`deploy/.env` vs 项目 `.env`）、读写边界、显存竞争与 CPU Embedding 的取舍。

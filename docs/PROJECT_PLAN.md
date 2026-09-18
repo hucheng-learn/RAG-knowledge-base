@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.36 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
+> 当前版本：v1.37 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -131,6 +131,7 @@ project_root/
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
 ├── deploy/
+│   ├── docker-compose.yml         # 全栈一键启动（MySQL/Milvus/MinerU/Ollama/后端，挂载宿主本地模型）
 │   ├── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone）
 │   └── docker-compose.mineru.yml  # MinerU 4.0 本地 V1 API 服务（宿主 8001，GPU）
 ├── sql/                           # MySQL 建表 SQL（权威版本）
@@ -262,7 +263,10 @@ project_root/
 
 - `Dockerfile` 使用 DaoCloud Python 基础镜像、清华 PyPI 和 BuildKit pip 缓存；
 - `deploy/docker-compose.yml` 统一编排后端、MySQL、Milvus、MinerU、Ollama，并保留健康检查、持久卷和本机端口覆盖；
-- `deploy/README.md` 补充模型准备、启动、停止和现有独立服务端口冲突说明。
+- **模型全部挂载宿主本地权重，离线可用**：Ollama 模型仓库默认 `<工作区>/models`（含 `qwen3:8b`）挂到 `/root/.ollama/models`，bge-m3 默认 `<工作区>/bge-m3` 只读挂到 `/models/bge-m3`；不再需要 `ollama pull`，也不从 HuggingFace 下载；
+- 相对路径以 compose 文件所在目录为基准（`../../models`、`../../bge-m3`），可用 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖；
+- Ollama 健康检查为 `ollama show qwen3:8b`（模型真能列出才算就绪，顺带验证模型目录挂载），后端 `depends_on` 该健康状态；
+- `deploy/README.md` 补充模型准备、构建/启动/验证命令、端口冲突与显存竞争说明。
 
 ### 8.8 第八阶段：本地 MinerU 部署与结构化解析（✅ 2026-09-18）
 
@@ -375,5 +379,6 @@ project_root/
 | 2026-09-18 | v1.31 | 第十阶段启动：LLMService 增加 `LLM_PROVIDER=deepseek/ollama` 配置切换和 Ollama OpenAI 兼容地址；保留 DeepSeek 默认值；本机检测到 `qwen3:8b` 模型 | 先保持统一调用协议和服务接口，再逐步完成本地模型问答与断网验收 |
 | 2026-09-18 | v1.32 | Ollama 适配改用原生 `/api/chat` + `think=false`，解决 qwen3 OpenAI 兼容端点将推理内容占满输出的问题；实测 `qwen3:8b` 返回正文 OK | 本地模型协议虽兼容 OpenAI，但思考模型的禁用推理参数行为不一致，原生端点可控性更好 |
 | 2026-09-18 | v1.36 | 完成本轮除第十一阶段外的全部工作：显式覆盖、token 输入保护、限流与阶段耗时日志、Ollama 原生流式、Dockerfile/统一 Compose、worker 重试参数接线、MinerU 首次连接重试和离线回归测试；第十一阶段标记延期 | 按用户指定执行范围收口，补齐网络中断前遗留项并使计划、技术设计、README 与实现一致 |
+| 2026-09-18 | v1.37 | 统一 Compose 改为**离线模型挂载**：Ollama 模型仓库（`qwen3:8b`）从宿主 `<工作区>/models` 挂到 `/root/.ollama/models`、bge-m3 从 `<工作区>/bge-m3` 只读挂到 `/models/bge-m3`，删除 `ollama pull` 步骤；新增 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖变量与 `OLLAMA_KEEP_ALIVE=30m`；Ollama 增加 `ollama show qwen3:8b` 健康检查、后端等待其健康、Ollama 增加 GPU 预留；`deploy/README.md` 重写前置条件与构建/启动/验证命令；README 与 `.env(.example)` 同步 | 模型已由用户下载到工作区，容器应直接用本地权重（客户内网/断网场景不可依赖 `ollama pull` 与 HuggingFace 下载）；同时修正原先默认的 bge-m3 挂载路径（`../models/bge-m3` 在真实工作区布局下不存在） |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
