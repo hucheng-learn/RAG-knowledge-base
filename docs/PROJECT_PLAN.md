@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.37 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
+> 当前版本：v1.38 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -380,5 +380,6 @@ project_root/
 | 2026-09-18 | v1.32 | Ollama 适配改用原生 `/api/chat` + `think=false`，解决 qwen3 OpenAI 兼容端点将推理内容占满输出的问题；实测 `qwen3:8b` 返回正文 OK | 本地模型协议虽兼容 OpenAI，但思考模型的禁用推理参数行为不一致，原生端点可控性更好 |
 | 2026-09-18 | v1.36 | 完成本轮除第十一阶段外的全部工作：显式覆盖、token 输入保护、限流与阶段耗时日志、Ollama 原生流式、Dockerfile/统一 Compose、worker 重试参数接线、MinerU 首次连接重试和离线回归测试；第十一阶段标记延期 | 按用户指定执行范围收口，补齐网络中断前遗留项并使计划、技术设计、README 与实现一致 |
 | 2026-09-18 | v1.37 | 统一 Compose 改为**离线模型挂载**：Ollama 模型仓库（`qwen3:8b`）从宿主 `<工作区>/models` 挂到 `/root/.ollama/models`、bge-m3 从 `<工作区>/bge-m3` 只读挂到 `/models/bge-m3`，删除 `ollama pull` 步骤；新增 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖变量与 `OLLAMA_KEEP_ALIVE=30m`；Ollama 增加 `ollama show qwen3:8b` 健康检查、后端等待其健康、Ollama 增加 GPU 预留；`deploy/README.md` 重写前置条件与构建/启动/验证命令；README 与 `.env(.example)` 同步 | 模型已由用户下载到工作区，容器应直接用本地权重（客户内网/断网场景不可依赖 `ollama pull` 与 HuggingFace 下载）；同时修正原先默认的 bge-m3 挂载路径（`../models/bge-m3` 在真实工作区布局下不存在） |
+| 2026-09-18 | v1.38 | 修复 `app/config/settings.py` 的 Python 手误：`debug: bool = false` 中的小写 `false` 在类体执行时抛 `NameError`，导致 `app.main` 导入失败、`rag-backend` 容器反复重启（`Restarting (1)`）；改为 `False`，同时使代码默认值与 `.env`（`DEBUG=false`）、第 40 行注释「生产必须 false」及 compose 的 `DEBUG: ${DEBUG:-false}` 四者一致；全仓扫描确认无其他小写布尔值（`tests/test_stability.py:31` 的 `"done":true` 属 JSON 字面量，不动） | `docker compose up -d --build backend` 重建后 `/health` 返回 200、容器 healthy、7 个服务全部 Up；排查中同时清理了统一 Compose 上线后遗留的两个旧容器 `mineru-api` / `milvus-standalone`（释放约 216MB 并解除宿主 19530 端口潜在冲突） |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

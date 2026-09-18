@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     app_name: str = "web_rag_service"
     app_version: str = "0.1.0"
     # 调试模式：true 时 FastAPI 返回详细错误（生产必须 false）
-    debug: bool = True
+    debug: bool = False
 
     # 注意：服务监听地址/端口由 uvicorn 命令行参数决定
     # （uvicorn app.main:app --host --port），不做配置项，避免两处配置不一致。
