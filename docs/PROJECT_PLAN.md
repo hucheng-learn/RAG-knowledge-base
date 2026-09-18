@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.41 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
+> 当前版本：v1.42 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -383,5 +383,6 @@ project_root/
 | 2026-09-18 | v1.39 | 修复异步入库「集合不存在即任务判死」：`vector_service.delete_by_doc` 改为**幂等**（collection 不存在时跳过删除并记日志，不再抛 `MilvusException code=100`），新增 `collection_exists()` 辅助函数；`process_document_task` 调整为**先 `ensure_collection()` 再 `delete_by_doc()`**（原顺序把"集合丢失"误判成任务失败）；写入前保留第二次 `ensure_collection()` 作为长耗时解析期间集合被删的保护 | 统一 Compose 上线后 Milvus 换用命名卷 `milvus_data`（空），旧 `deploy/volumes/milvus` 数据不再被使用，集合不存在成常态；此时异步任务第一步"清理重试残留"就抛异常，重试 3 次后文档终态失败、分块数 0。实测：补建集合 + 重新入队后 task 一次成功（55 分块、chunk_id 1~55 全部写入 Milvus） |
 | 2026-09-18 | v1.40 | 清理切栈遗留的 bind 数据目录 `deploy/volumes/`（etcd 77.3MB + milvus 86.4MB + minio 1.1MB，共 164.8MB）：确认无任何容器挂载该路径（7 个 `rag-*` 容器全部使用命名卷 `deploy_*`）、独立 compose 已停用、旧 MySQL 侧无对应元数据，属不可复用的孤儿数据；`deploy/README.md` 同步说明该目录已删除及重建行为 | 该份数据是统一 Compose 上线前的独立 compose 产物，既不被当前栈读取、也无法与现有元数据对应，留着只占空间且容易在排查"向量丢失"时误导（v1.39 的 collection not found 正是切栈导致的，详见该行）；删除后全栈服务与 `/health` 复验正常 |
 | 2026-09-18 | v1.41 | 部署入口收口：删除 `deploy/docker-compose.milvus.yml` 与 `deploy/docker-compose.mineru.yml`（Milvus/MinerU 的独立 compose），`deploy/docker-compose.yml` 成为唯一入口——既支持 `up -d` 起全栈，也支持 `up -d milvus`（带起 etcd/minio）/ `up -d mineru` 只起依赖服务给宿主 uvicorn；同步更新 `AGENTS.md` 环境表、`README.md`（启动步骤/目录结构/环境注意）、`deploy/README.md`（启动命令、端口与冲突、命名卷说明）、`deploy/mineru/README.md`（方式一改写）、`TECH_DESIGN.md` 13.5、`PROJECT_PLAN` 目录结构与 8.0.1 接续指引；清理 `.gitignore` / `.dockerignore` 中已失效的 `deploy/volumes/` 忽略项；另修正 `README.md` 中"统一 Compose 与已有独立 Milvus/MinerU 服务会争用端口"这条随之失效的说明，改为"同一套 Compose 里 backend 与宿主 uvicorn 争用 8000"；`deploy/mineru/README.md` 保留（唯一记录 `mineru:4` 镜像构建步骤与 MinerU 专有细节的文档） | 两套 compose 强绑定同一批宿主端口、不能并行，留着的唯一价值是"没有容器后端时只起 Milvus"；这用服务名子集即可实现，且后端镜像重建只要几秒（层全命中缓存），不需要为省一次构建维护第二套编排文件——少一套编排就少一类"跑错栈导致数据/向量对不上"的坑（v1.39/v1.40 的根因正是切栈） |
+| 2026-09-18 | v1.42 | 容器内 Embedding 接到 GPU：`deploy/docker-compose.yml` 的 backend 服务新增 GPU 设备预留（`driver: nvidia` / `device_ids: ["0"]`），`EMBEDDING_DEVICE` 默认值由 `cpu` 改为 `cuda`（可在 `deploy/.env` 覆盖回 cpu）；同步修正 `deploy/README.md`「资源与已知限制」、`README.md`「容器内的推理设备」、`TECH_DESIGN.md` 9.4/14.5、`.env.example` 注释中"镜像内是 PyPI 默认 torch（CPU 版）、RTX 5080 需换 torch 底座"的过时结论 | 排查"显存好像没用"时实测发现：镜像内其实是 `torch 2.14.0+cu130`，同镜像加 `--gpus all` 即 `cuda.is_available()=True` 并识别 RTX 5080 Laptop（capability 12.0），原文结论已不成立；真正的瓶颈是 compose 没给 backend 预留设备，而 `BgeEmbeddingService` 对 cuda 不可用只打 WARNING 回退 CPU、不报错，于是长期"能跑但跑在 CPU"——日志里一次 12 字提问 `embedding_ms=13121.6`。对照实测（预热后）：CPU 单条 447ms / 512 条 15.9s，GPU 单条 12.8ms / 512 条 1.42s，约 11~35 倍；改造后容器内预热单次查询 `embedding_ms≈72ms`、端到端 1.4s，显存 5.6GB(Ollama) → 8.05GB(+bge-m3 2.2GB)；顺带确认 MinerU 空闲占 0 显存属正常（VLM 权重首次解析 PDF/图片才 warmup），宿主 `nvidia-smi` 进程列表为空是 WDDM 假象、容器内可见 `/llama-server` |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

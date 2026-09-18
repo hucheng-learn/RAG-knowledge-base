@@ -79,8 +79,8 @@ docker compose -f deploy/docker-compose.yml down -v           # 连命名卷一�
 ## 资源与已知限制
 
 - 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建；**换过数据卷（`down -v`、卷被删）后旧向量不会被带过来**，历史文档需要重新上传（或对 MySQL 里仍有 chunks 的文档跑 `scripts/rebuild_vectors.py`）。旧独立 compose 的 bind 数据（`deploy/volumes/`）已于 2026-09-18 删除；
-- **Embedding 默认 CPU 推理**（`EMBEDDING_DEVICE=cpu`）：镜像里装的是 PyPI 默认 torch，本机 RTX 5080 是 Blackwell 架构（需 cu128 及以上），因此不作为默认；要用 GPU 需自行替换镜像里的 torch 底座；
-- **Ollama 与 MinerU 共用一张显卡**：MinerU 先 warmup 占用显存，Ollama 再加载 qwen3:8b（约 5.2GB）。若 Ollama 报显存不足或明显回退到 CPU，删掉 `ollama:` 服务里的 `deploy.resources` 段落即可让它只走 CPU（或反过来给 MinerU 降档）；
+- **Embedding 走 GPU**（`EMBEDDING_DEVICE=cuda`，backend 服务已预留 GPU 设备）：镜像内的 torch 是 `2.14.0+cu130`，实测在 RTX 5080 Laptop（sm_120 / capability 12.0）上 `torch.cuda.is_available()=True`，**不需要替换 torch 底座**（旧结论"镜像内是 CPU 版 torch"已作废）。预热后对照：批量 512 条 GPU 1.42s / CPU 15.9s、单条 GPU 12.8ms / CPU 447ms（约 11~35 倍），模型常驻约 2.2GB 显存；显存紧张时在 `deploy/.env` 写 `EMBEDDING_DEVICE=cpu` 即可退回 CPU；
+- **三个容器共用一张显卡（Ollama + MinerU + backend）**：Ollama 常驻 qwen3:8b 约 5.6GB、bge-m3 约 2.2GB，MinerU 首次解析 PDF/图片时 vLLM warmup 还会一次性预占数 GB（16GB 卡上偏紧）。显存不足时按优先级让出：先删 `ollama:` 服务的 `deploy.resources` 段（Ollama 走 CPU），或给 MinerU 降档，最后才是把 `EMBEDDING_DEVICE` 改回 `cpu`；
 - 模型目录是 Windows bind mount，首次加载 qwen3:8b 会比镜像内层慢一些；`OLLAMA_KEEP_ALIVE` 默认已设为 `30m`，避免间隔稍长就重新加载。
 
 ## 常见问题

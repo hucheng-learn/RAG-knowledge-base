@@ -162,7 +162,7 @@ services:
       MILVUS_PORT: 19530
       # 容器内固定路径，由下面的宿主目录挂载提供（离线加载，不联网下载）
       EMBEDDING_MODEL: /models/bge-m3
-      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cuda}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
@@ -178,6 +178,16 @@ services:
       - ../logs:/app/logs
       # bge-m3 权重来自宿主本地目录（默认工作区根下 bge-m3），只读挂载
       - ${EMBEDDING_MODEL_HOST_PATH:-../../bge-m3}:/models/bge-m3:ro
+    # Embedding 走 GPU：镜像内 torch 是 cu130 构建（实测支持 RTX 5080 / sm_120），
+    # 不预留设备时 torch.cuda.is_available() 为 False，会在 CPU 上跑（慢 10 倍以上）。
+    # 显存紧张时把 deploy/.env 里 EMBEDDING_DEVICE 设为 cpu 即可退回 CPU。
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
     depends_on:
       mysql:
         condition: service_healthy

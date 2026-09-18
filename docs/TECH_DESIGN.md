@@ -314,7 +314,7 @@ MySQL 落库（拿 chunk.id）→ 批量向量化 → 写 Milvus（主键=chunk.
 
 ### 9.4 环境与工程要点
 
-- **GPU 推理**：`EMBEDDING_DEVICE=cuda`，查询向量化 0.37s（RTX 5080），CPU 会慢一个数量级；
+- **GPU 推理**：`EMBEDDING_DEVICE=cuda`——首次调用含 CUDA 上下文初始化与 kernel autotune（约 0.3~0.4s），预热后单条约 13ms、批量 512 条约 2.8ms/条；CPU 则单条约 0.45s、批量约 31ms/条（相差一个数量级以上）。**微基准必须预热后再计时**，否则量到的是 CUDA 初始化而不是推理；
 - **pymilvus 3.x API 差异**：`index_params` 从 dict 改为 `IndexParams` 对象（`pymilvus.milvus_client.index`），`search` 增加 `search_params` 显式参数——升级大版本时这类破坏性变更要靠真实验证暴露；
 - 国内环境：HF 本体被墙走 `hf-mirror.com` 直连；新版 huggingface_hub 默认 Xet 存储后端（`cas-server.xethub.hf.co`）也被墙，需 `HF_HUB_DISABLE_XET=1` 强制走普通 HTTP。
 
@@ -601,8 +601,9 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 
 ### 14.5 已知代价与显存竞争
 
-- Embedding 容器内默认 **CPU**（`EMBEDDING_DEVICE=cpu`）：镜像装的是 PyPI 默认 torch，本机 RTX 5080 属 Blackwell（sm_120），需要 cu128 及以上的 torch/CUDA 组合，故不把 GPU 作为默认——避免"看着配了 GPU、实际起不来"；
-- Ollama 与 MinerU **共用一张显卡**：MinerU 是 vLLM，启动 warmup（约 2~3 分钟）时一次性预占显存，Ollama 之后再加载 qwen3:8b（约 5.2GB）。显存不足时优先牺牲 Ollama 的 GPU 预留（删 `deploy.resources` 段落），而不是解析链路；
+- Embedding 容器内**走 GPU**（`EMBEDDING_DEVICE=cuda` + backend 服务预留 GPU 设备）：实测镜像内 torch 为 `2.14.0+cu130`，在 RTX 5080 Laptop（Blackwell，sm_120）上 `cuda.is_available()=True`——原先"镜像内是 CPU 版 torch、要用 GPU 必须换 torch 底座"的结论**已作废**；真正的瓶颈只是 compose 没给 backend 预留设备（没设备时 torch 自动落到 CPU，且 `BgeEmbeddingService` 会打 WARNING 回退、不报错，最容易被忽略）；
+- 测量方法与结论（同机同镜像、预热后排除 CUDA 首次调用开销）：CPU 单条 447ms / 批量 512 条 15.9s，GPU 单条 12.8ms / 批量 512 条 1.42s，约 11~35 倍；线上容器预热后实测单次查询 `embedding_ms≈72ms`（此前 CPU 首次查询曾达 13.1s）。**"配置成 CPU 也能跑通"的降级路径最容易漏掉——能跑 ≠ 跑在对的设备上**：验证要直接问 torch（`torch.cuda.is_available()`）并看 `nvidia-smi` 进程，而不是看配置项写没写 cuda；
+- Ollama、MinerU、backend **三个容器共用一张显卡**：Ollama 常驻 qwen3:8b（约 5.6GB）、bge-m3（约 2.2GB），MinerU 是 vLLM，启动 warmup（约 2~3 分钟）时一次性预占显存。显存不足时按代价让出：先让 Ollama 走 CPU（删 `deploy.resources` 段），再给 MinerU 降档，最后才把 Embedding 退回 CPU；
 - 模型文件位于 Windows bind mount，mmap 读取性能不如镜像层，故设 `OLLAMA_KEEP_ALIVE=30m` 让模型常驻，用显存换掉"间隔稍长就重新加载 5.2GB"。
 
 ---

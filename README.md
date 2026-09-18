@@ -136,4 +136,4 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 - **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
 - **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
 - **Docker**：`deploy/docker-compose.yml` 是唯一入口——一键起全栈（模型直接挂载宿主本地目录，离线可用；模型路径由 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 指定），也可用 `up -d milvus` / `up -d mineru` 只起依赖服务给宿主 uvicorn 用（旧的 Milvus/MinerU 独立 compose 已删除）。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连；
-- **容器内的推理设备**：Embedding 在容器里默认 **CPU**（`EMBEDDING_DEVICE=cpu`，镜像内是 PyPI 默认 torch，本机 RTX 5080 属 Blackwell 架构需 cu128 及以上）；Ollama 与 MinerU 共用一张显卡，显存不足时按 `deploy/README.md` 的说明关掉 Ollama 的 GPU 预留。
+- **容器内的推理设备**：Embedding **走 GPU**（compose 默认 `EMBEDDING_DEVICE=cuda`，backend 已预留 GPU 设备；镜像内 torch 是 `2.14.0+cu130`，实测支持 RTX 5080/sm_120，无需换 torch 底座）；Ollama、MinerU、backend 三个容器共用这张卡（约 5.6 + 2.2 + MinerU 数 GB），显存不足时按 `deploy/README.md` 的优先级让出（先关 Ollama 的 GPU 预留，最后才把 Embedding 退回 CPU）。
