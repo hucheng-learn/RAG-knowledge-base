@@ -239,6 +239,10 @@ documents + chunks **同一事务**：`add(doc) → flush()（拿自增 id）→
 
 任务领取使用数据库事务和行锁：按 `next_run_at, id` 取最早任务，MySQL 8 使用 `FOR UPDATE SKIP LOCKED`，领取时原子更新为 `processing`、递增 `attempts` 并写 `locked_at`。超过锁超时的 `processing` 任务可被重新领取；处理失败但未达到 `max_attempts` 时按退避时间回到 `pending`，达到上限才进入 `failed`，并同步把文档标记为失败。这样 worker 进程崩溃不会永久丢任务，多 worker 也不会同时消费同一任务。
 
+第九阶段将 HTTP 上传与重处理解耦：上传只落盘、写 `documents(status=0)`、创建 `document_tasks` 后立即返回，worker 才执行 MinerU、清洗、结构化分块、Embedding 和 Milvus 双写；前端通过 `GET /api/v1/documents/{file_id}/status` 轮询终态。文件 SHA-256 与解析器配置生成缓存键，缓存只保存原始 `ParseResult`，分块仍按当前配置重新计算。MinerU 的表格/图片/公式结构块写入 `assets` manifest，删除文档时同时清理对应资产目录。
+
+worker 每次处理前先按文档删除已有 Milvus 向量，失败时再次补偿删除；因此任务重试是幂等的，不会因上一次在向量写入阶段崩溃而留下重复召回结果。
+
 ---
 
 ## 7. 日志与可观测性

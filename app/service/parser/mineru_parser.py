@@ -155,6 +155,7 @@ class MinerUParser(DocumentParser):
         markdown = self._download_text(client, base_url, output_files.get("markdown"), headers)
         pages = structured.get("pages", []) if structured else []
         blocks = []
+        assets = []
         page_texts = []
         for page in pages:
             page_number = int(page.get("page_idx", 0)) + 1
@@ -178,6 +179,12 @@ class MinerUParser(DocumentParser):
                     block_index=block_index,
                     metadata=block,
                 ))
+                if str(block.get("type", "")).lower() in {"table", "image", "figure", "formula"}:
+                    assets.append({
+                        "asset_type": str(block.get("type")), "page_number": page_number,
+                        "block_index": block_index, "content": content,
+                        "metadata": block,
+                    })
             page_texts.append("\n\n".join(page_contents))
         text = markdown or "\n\n".join(page_texts)
         # 兜底：structured_content 缺失但 markdown 成功时 page_texts 会是空列表，
@@ -187,7 +194,7 @@ class MinerUParser(DocumentParser):
             page_texts = [text]
             logger.warning("MinerU 未返回结构化分页，已按整篇单页兜底: 字符数=%d", len(text))
         return ParseResult(
-            text=text, page_texts=page_texts, blocks=blocks,
+            text=text, page_texts=page_texts, blocks=blocks, assets=assets,
             parser_name="mineru", parser_version="4.x",
             metadata={"tier": get_settings().mineru_tier},
         )

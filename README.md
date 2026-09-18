@@ -15,7 +15,7 @@
 - 第四阶段：知识库管理接口 + 文档删除级联（已完成）
 - 第五阶段：RAG 问答接口（SSE 流式 + 溯源）+ 前端单页（已完成）
 - 第八阶段：本地 MinerU 部署与结构化解析（已完成：多格式支持 + PDF 降级保护）
-- **第九阶段：结构化分块、异步入库与解析降级 —— 🟡 进行中**（结构化分块、任务表及 worker 领取/重试状态机已完成；后台循环、`assets` 待完成）
+- **第九阶段：结构化分块、异步入库与解析降级 —— ✅ 已完成**（结构化分块、异步 worker、状态轮询、降级状态、SHA-256/解析缓存、assets manifest 均已接入）
 - 第六阶段：工程稳定性优化 —— 后移（与第九阶段的异步机制一并收口）
 - 第十阶段：Ollama 本地 LLM 与全链路私有化 —— 待开发
 - 第十一阶段：pdfplumber / MinerU 对照实验与面试报告 —— 待开发
@@ -65,7 +65,8 @@ uvicorn app.main:app --reload
 
 | 方法     | 路径                                 | 说明                                           |
 | ------ | ---------------------------------- | -------------------------------------------- |
-| POST   | `/api/v1/documents/upload?kb_id=`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），同步解析/分块/向量入库 |
+| POST   | `/api/v1/documents/upload?kb_id=`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），保存后异步入队 |
+| GET    | `/api/v1/documents/{file_id}/status` | 查询文档处理状态、任务尝试次数、解析器与错误信息 |
 | DELETE | `/api/v1/documents/{file_id}`      | 删除文档（级联清理 Milvus/MySQL/文件）                   |
 | POST   | `/api/v1/kbs`                      | 新建知识库                                        |
 | GET    | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情                                   |

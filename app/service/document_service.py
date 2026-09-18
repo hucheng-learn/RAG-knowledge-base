@@ -10,6 +10,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from app.config.settings import get_settings
 from app.models.orm import get_session
 from app.models.orm.chunk import Chunk
 from app.models.orm.document import Document, DocumentStatus
+from app.models.orm.document_task import DocumentTask
+from app.models.orm.parse_cache import ParseCache
 from app.models.orm.knowledge_base import KnowledgeBase
 from app.models.schemas import UploadResponse
 from app.service.chunk_service import chunk_document
@@ -33,7 +36,7 @@ from app.service.vector_service import (
 )
 from app.utils.clean_text import clean_text
 from app.utils.exceptions import BizException
-from app.utils.file_utils import get_extension, save_upload_file
+from app.utils.file_utils import get_extension, save_upload_file, sha256_file
 from app.utils.logger import get_logger
 from app.utils.response import RespCode
 
@@ -292,6 +295,7 @@ def _compensate(doc_id: int, kb_id: int | None = None) -> None:
         # 先删 chunks 再删 documents：Query.delete() 是批量 SQL，
         # 不触发 ORM 关系级联，必须先删子表，否则产生孤儿 chunk
         session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
+        session.query(DocumentTask).filter(DocumentTask.doc_id == doc_id).delete()
         session.query(Document).filter(Document.id == doc_id).delete()
         # 回退知识库文档计数（补偿 persist 时那次 +1）
         if kb_id is not None:
@@ -367,6 +371,7 @@ def purge_document(doc) -> None:
     session = get_session()
     try:
         session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
+        session.query(DocumentTask).filter(DocumentTask.doc_id == doc_id).delete()
         session.query(Document).filter(Document.id == doc_id).delete()
         if doc.kb_id is not None:
             session.query(KnowledgeBase).filter(KnowledgeBase.id == doc.kb_id).update(
@@ -383,6 +388,10 @@ def purge_document(doc) -> None:
     storage = _resolve_storage_path(doc)
     if storage.exists():
         storage.unlink()
+    asset_dir = settings.document_asset_dir_path / doc.file_id
+    if asset_dir.exists():
+        import shutil
+        shutil.rmtree(asset_dir)
     logger.info("文档已级联清理: doc_id=%s file_id=%s", doc_id, doc.file_id)
 
 
@@ -402,3 +411,246 @@ def delete_document(file_id: str) -> dict:
         session.close()
     purge_document(doc)
     return {"deleted": True, "file_id": file_id, "doc_id": doc_id}
+
+
+async def upload_document_async(upload_file: UploadFile, kb_id: int | None = None) -> UploadResponse:
+    """保存文件并创建 pending 文档任务，绝不在请求内解析或调用模型。"""
+    from app.service.document_task_service import enqueue_document_task
+
+    target_path = await save_upload_file(upload_file)
+    file_sha256 = await run_in_threadpool(sha256_file, target_path)
+    try:
+        if kb_id is not None:
+            await run_in_threadpool(_validate_kb, kb_id)
+            if upload_file.filename:
+                await run_in_threadpool(_check_duplicate, kb_id, upload_file.filename)
+        doc_id = await run_in_threadpool(
+            _create_pending_document,
+            target_path.stem,
+            upload_file.filename or "",
+            target_path.stat().st_size,
+            file_sha256,
+            kb_id,
+        )
+        task_id = await run_in_threadpool(enqueue_document_task, doc_id)
+        return UploadResponse(
+            file_id=target_path.stem,
+            original_filename=upload_file.filename or "",
+            file_size=target_path.stat().st_size,
+            status="pending",
+            task_id=task_id,
+        )
+    except Exception:
+        target_path.unlink(missing_ok=True)
+        raise
+
+
+def _create_pending_document(
+    file_id: str, original_filename: str, file_size: int, file_sha256: str, kb_id: int | None,
+) -> int:
+    session = get_session()
+    try:
+        doc = Document(
+            file_id=file_id, kb_id=kb_id, original_filename=original_filename,
+            file_type=get_extension(original_filename).lstrip(".") or None,
+            file_size=file_size, file_sha256=file_sha256, status=DocumentStatus.PENDING,
+            char_count=0, chunk_count=0,
+        )
+        session.add(doc)
+        session.flush()
+        if kb_id is not None:
+            session.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).update(
+                {KnowledgeBase.doc_count: KnowledgeBase.doc_count + 1}, synchronize_session=False,
+            )
+        session.commit()
+        return doc.id
+    except Exception:
+        session.rollback()
+        logger.exception("创建待处理文档失败: file_id=%s", file_id)
+        raise
+    finally:
+        session.close()
+
+
+def process_document_task(task_id: int) -> None:
+    """执行一个已领取任务：解析、结构化分块、向量双写并更新文档终态。"""
+    from app.service.document_task_service import mark_task_failed, mark_task_succeeded
+
+    session = get_session()
+    doc = session.query(Document).join(DocumentTask, DocumentTask.doc_id == Document.id).filter(
+        DocumentTask.id == task_id
+    ).first()
+    if doc is None:
+        session.close()
+        raise BizException(f"任务关联文档不存在: task_id={task_id}")
+    doc_id, kb_id, file_id, filename = doc.id, doc.kb_id, doc.file_id, doc.original_filename
+    session.close()
+    path = settings.upload_dir_path / f"{file_id}{get_extension(filename)}"
+    try:
+        _set_document_status(doc_id, DocumentStatus.PROCESSING)
+        # 重试前清理上一次可能部分写入的向量，保证幂等重建不产生重复召回。
+        delete_by_doc(doc_id)
+        parser = get_parser(get_extension(filename))
+        parse_result = _load_or_parse_cached(path, parser)
+        _persist_assets(file_id, parse_result.assets)
+        cleaned = clean_text(parse_result.text)
+        cleaned_pages = [clean_text(page) for page in parse_result.page_texts]
+        cleaned_blocks = [_clean_block(block) for block in parse_result.blocks]
+        chunks = chunk_document(parse_result, cleaned_pages, cleaned_blocks)
+        note = _build_degrade_note(parse_result, filename)
+        records = _persist_existing_document(doc_id, cleaned, chunks, parse_result.parser_name, note)
+        vectors = _embed_chunks([record.content for record in records])
+        ensure_collection()
+        insert_chunk_vectors([
+            {"id": record.chunk_id, "vector": vector, "doc_id": doc_id,
+             "chunk_index": record.chunk_index, "page_number": record.page_number}
+            for record, vector in zip(records, vectors)
+        ])
+        _mark_vectorized(doc_id)
+        mark_task_succeeded(task_id)
+    except Exception as exc:
+        logger.exception("异步文档处理失败: task_id=%s file=%s", task_id, filename)
+        try:
+            delete_by_doc(doc_id)
+        except Exception:
+            logger.exception("异步任务失败补偿删除 Milvus 向量失败: doc_id=%s", doc_id)
+        mark_task_failed(task_id, str(exc), retry_delay_seconds=settings.document_worker_retry_delay_seconds)
+
+
+def _set_document_status(doc_id: int, status: DocumentStatus) -> None:
+    session = get_session()
+    try:
+        session.query(Document).filter(Document.id == doc_id).update(
+            {Document.status: status, Document.updated_at: datetime.now()}, synchronize_session=False,
+        )
+        session.commit()
+    finally:
+        session.close()
+
+
+def _persist_existing_document(
+    doc_id: int, cleaned: str, chunks: list, parser_name: str, parse_error: str | None,
+) -> list[_ChunkRecord]:
+    session = get_session()
+    try:
+        doc = session.query(Document).filter(Document.id == doc_id).first()
+        if doc is None:
+            raise BizException(f"文档不存在: doc_id={doc_id}")
+        doc.char_count = len(cleaned)
+        doc.chunk_count = len(chunks)
+        doc.parser_name = parser_name
+        doc.parse_error = parse_error
+        doc.status = DocumentStatus.DEGRADED if parse_error else DocumentStatus.COMPLETED
+        doc.updated_at = datetime.now()
+        session.query(Chunk).filter(Chunk.doc_id == doc_id).delete()
+        chunk_objs = [Chunk(
+            doc_id=doc_id, kb_id=doc.kb_id, chunk_index=c.chunk_index, content=c.content,
+            block_type=c.block_type, heading_path=json.dumps(c.heading_path or [], ensure_ascii=False),
+            page_number=c.page_number,
+        ) for c in chunks]
+        session.add_all(chunk_objs)
+        session.flush()
+        records = [_ChunkRecord(
+            chunk_id=obj.id, content=c.content, chunk_index=c.chunk_index, page_number=c.page_number,
+            block_type=c.block_type, heading_path=c.heading_path or [],
+        ) for obj, c in zip(chunk_objs, chunks)]
+        session.commit()
+        return records
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def get_document_status(file_id: str) -> dict:
+    """返回文档及其任务状态，供前端轮询。"""
+    session = get_session()
+    try:
+        doc = session.query(Document).filter(Document.file_id == file_id).first()
+        if doc is None:
+            raise BizException(f"文档不存在: file_id={file_id}", code=RespCode.NOT_FOUND)
+        task = session.query(DocumentTask).filter(DocumentTask.doc_id == doc.id).first()
+        return {
+            "file_id": doc.file_id, "status": int(doc.status),
+            "task_status": int(task.status) if task else None,
+            "attempts": task.attempts if task else 0, "chunk_count": doc.chunk_count,
+            "parser_name": doc.parser_name, "parse_error": doc.parse_error,
+        }
+    finally:
+        session.close()
+
+
+def _parser_signature(parser) -> str:
+    """缓存签名包含解析器类型和关键配置，避免配置切换误用旧结果。"""
+    settings = get_settings()
+    return "|".join([
+        parser.__class__.__name__, str(settings.pdf_parser), str(settings.mineru_tier),
+        str(settings.mineru_api_url),
+    ])
+
+
+def _serialize_parse_result(result) -> str:
+    return json.dumps({
+        "text": result.text, "page_texts": result.page_texts,
+        "blocks": [
+            {"block_type": block.block_type, "content": block.content,
+             "page_number": block.page_number, "block_index": block.block_index,
+             "heading_path": block.heading_path, "metadata": block.metadata}
+            for block in result.blocks
+        ],
+        "assets": result.assets, "parser_name": result.parser_name,
+        "parser_version": result.parser_version, "metadata": result.metadata,
+    }, ensure_ascii=False)
+
+
+def _deserialize_parse_result(raw: str):
+    from app.service.parser.base import DocumentBlock, ParseResult
+    data = json.loads(raw)
+    blocks = [DocumentBlock(**block) for block in data.get("blocks", [])]
+    return ParseResult(
+        text=data.get("text", ""), page_texts=data.get("page_texts", []), blocks=blocks,
+        assets=data.get("assets", []), parser_name=data.get("parser_name", "unknown"),
+        parser_version=data.get("parser_version"), metadata=data.get("metadata", {}),
+    )
+
+
+def _load_or_parse_cached(path: Path, parser):
+    file_hash = sha256_file(path)
+    signature = _parser_signature(parser)
+    cache_key = hashlib.sha256(f"{file_hash}|{signature}".encode()).hexdigest()
+    session = get_session()
+    try:
+        cached = session.query(ParseCache).filter(ParseCache.cache_key == cache_key).first()
+        if cached is not None:
+            cached.last_used_at = datetime.now()
+            session.commit()
+            logger.info("命中解析缓存: file=%s cache_key=%s", path.name, cache_key[:12])
+            return _deserialize_parse_result(cached.result_json)
+    finally:
+        session.close()
+    result = parser.parse(path)
+    session = get_session()
+    try:
+        session.add(ParseCache(
+            cache_key=cache_key, file_sha256=file_hash, parser_signature=signature,
+            result_json=_serialize_parse_result(result), last_used_at=datetime.now(),
+        ))
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("写入解析缓存失败: file=%s", path.name)
+    finally:
+        session.close()
+    return result
+
+
+def _persist_assets(file_id: str, assets: list[dict]) -> None:
+    """保存解析器返回的资产清单；二进制下载由解析器后续提供时再补充。"""
+    if not assets:
+        return
+    asset_dir = settings.document_asset_dir_path / file_id
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    (asset_dir / "manifest.json").write_text(
+        json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8",
+    )

@@ -54,6 +54,12 @@ class Document(Base):
     file_size: Mapped[int] = mapped_column(
         BigInteger, nullable=False, comment="文件大小（字节）",
     )
+    file_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True, comment="文件内容SHA-256",
+    )
+    parser_name: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True, comment="实际使用的解析器",
+    )
     char_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="清洗后总字符数",
     )

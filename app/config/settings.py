@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     )
 
     # ---------- 应用 ----------
-    app_name: str = "RAG Knowledge Base Service"
+    app_name: str = "web_rag_service"
     app_version: str = "0.1.0"
     # 调试模式：true 时 FastAPI 返回详细错误（生产必须 false）
     debug: bool = True
@@ -106,6 +106,14 @@ class Settings(BaseSettings):
     mineru_max_polls: int = 100
     mineru_poll_interval_seconds: float = 3.0
 
+    # ---------- 异步文档 worker ----------
+    document_worker_enabled: bool = True
+    document_worker_poll_seconds: float = 1.0
+    document_worker_timeout_seconds: int = 900
+    document_worker_max_attempts: int = 3
+    document_worker_retry_delay_seconds: int = 30
+    document_asset_dir: str = "uploads/assets"
+
     # ---------- 计算属性：业务层直接使用语义化值 ----------
 
     @property
@@ -118,6 +126,12 @@ class Settings(BaseSettings):
     def log_dir_path(self) -> Path:
         """日志目录绝对路径；配置相对路径时基于项目根目录解析。"""
         p = Path(self.log_dir)
+        return p if p.is_absolute() else BASE_DIR / p
+
+    @property
+    def document_asset_dir_path(self) -> Path:
+        """解析素材目录绝对路径。"""
+        p = Path(self.document_asset_dir)
         return p if p.is_absolute() else BASE_DIR / p
 
     @property
@@ -136,6 +150,7 @@ class Settings(BaseSettings):
         """启动时确保关键目录存在（上传目录、日志目录）。"""
         self.upload_dir_path.mkdir(parents=True, exist_ok=True)
         self.log_dir_path.mkdir(parents=True, exist_ok=True)
+        self.document_asset_dir_path.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

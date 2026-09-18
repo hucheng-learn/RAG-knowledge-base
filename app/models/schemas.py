@@ -32,6 +32,8 @@ class UploadResponse(BaseModel):
     chunk_count: Optional[int] = Field(None, description="分块数量（第二阶段起填充）")
     parser_name: Optional[str] = Field(None, description="实际使用的解析器（txt/pdfplumber/mineru）")
     degraded: Optional[bool] = Field(None, description="是否发生了降级解析（如 MinerU 失败回退 pdfplumber）")
+    status: Optional[str] = Field(None, description="文档处理状态")
+    task_id: Optional[int] = Field(None, description="异步处理任务ID")
 
 
 class KnowledgeBaseCreate(BaseModel):
@@ -50,6 +52,21 @@ class DocumentBrief(BaseModel):
     char_count: int = Field(..., description="清洗后总字符数")
     chunk_count: int = Field(..., description="分块数量")
     created_at: datetime = Field(..., description="创建时间")
+    status: int = Field(0, description="处理状态: 0待解析/1处理中/2完成/3失败/4降级完成")
+    parser_name: Optional[str] = Field(None, description="实际解析器")
+    parse_error: Optional[str] = Field(None, description="处理错误或降级说明")
+
+
+class DocumentStatusResponse(BaseModel):
+    """异步文档处理状态。"""
+
+    file_id: str
+    status: int
+    task_status: Optional[int] = None
+    attempts: int = 0
+    chunk_count: int = 0
+    parser_name: Optional[str] = None
+    parse_error: Optional[str] = None
 
 
 class KnowledgeBaseSummary(BaseModel):

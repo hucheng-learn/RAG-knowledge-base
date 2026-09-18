@@ -30,6 +30,8 @@ CREATE TABLE documents (
   original_filename VARCHAR(255) NOT NULL COMMENT '原始文件名',
   file_type         VARCHAR(32)  NULL COMMENT '文件类型(pdf/docx/txt/md等)',
   file_size         BIGINT       NOT NULL COMMENT '文件大小（字节）',
+  file_sha256       VARCHAR(64)  NULL COMMENT '文件内容SHA-256',
+  parser_name       VARCHAR(32)  NULL COMMENT '实际使用的解析器',
   char_count        INT NOT NULL COMMENT '清洗后总字符数',
   chunk_count       INT NOT NULL COMMENT '分块数量',
   status            TINYINT NOT NULL DEFAULT 0 COMMENT '处理状态: 0-待解析 1-解析中 2-解析完成 3-失败 4-降级完成',
@@ -39,6 +41,7 @@ CREATE TABLE documents (
   KEY kb_id (kb_id),
   KEY ix_doc_status (status),
   KEY ix_doc_file_type (file_type),
+  KEY ix_doc_file_sha256 (file_sha256),
   CONSTRAINT fk_documents_kb FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档（对应一个上传的文件，属于某个知识库）';
 
@@ -79,3 +82,15 @@ CREATE TABLE document_tasks (
   KEY ix_task_status_run (status, next_run_at),
   CONSTRAINT fk_document_tasks_doc FOREIGN KEY (doc_id) REFERENCES documents(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='异步文档处理任务';
+
+-- 解析结果缓存：避免相同文件重复调用 MinerU
+CREATE TABLE parse_cache (
+  id               INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+  cache_key        VARCHAR(64) NOT NULL UNIQUE COMMENT '文件哈希+解析器配置缓存键',
+  file_sha256      VARCHAR(64) NOT NULL COMMENT '文件内容SHA-256',
+  parser_signature VARCHAR(255) NOT NULL COMMENT '解析器配置签名',
+  result_json      LONGTEXT NOT NULL COMMENT '序列化ParseResult',
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  last_used_at     DATETIME NULL COMMENT '最近命中时间',
+  KEY ix_parse_cache_sha256 (file_sha256)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档解析结果缓存';

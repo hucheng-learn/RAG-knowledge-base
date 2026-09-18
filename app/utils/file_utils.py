@@ -4,6 +4,7 @@
 解析/清洗等业务逻辑在 service 层，不放在这里。
 """
 
+import hashlib
 import uuid
 from pathlib import Path
 
@@ -17,6 +18,15 @@ logger = get_logger(__name__)
 
 # 分块读取大小：边读边写，避免整个文件一次性载入内存
 _CHUNK_SIZE = 1024 * 1024  # 1MB
+
+
+def sha256_file(path: Path) -> str:
+    """流式计算文件 SHA-256，避免把大文件整体读入内存。"""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(_CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def get_extension(filename: str) -> str:

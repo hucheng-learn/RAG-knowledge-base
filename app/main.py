@@ -12,6 +12,7 @@
 """
 
 import time
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,7 @@ from app.routers import chat, document, knowledge_base
 from app.utils.exceptions import register_exception_handlers
 from app.utils.logger import get_logger, setup_logging
 from app.utils.response import success
+from app.service.document_worker import run_document_worker
 
 # 模块顶部初始化日志（先于一切业务日志，保证启动期日志也能落盘）
 setup_logging()
@@ -44,8 +46,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         init_db()
     except Exception:
         logger.exception("MySQL 初始化失败，上传接口暂不可用")
+    stop_event = asyncio.Event()
+    worker_task = None
+    if settings.document_worker_enabled:
+        worker_task = asyncio.create_task(run_document_worker(stop_event), name="document-worker")
+        logger.info("文档 worker 已启动")
     logger.info("应用启动完成: %s v%s", settings.app_name, settings.app_version)
     yield
+    stop_event.set()
+    if worker_task is not None:
+        await worker_task
     # 关闭：后续如有数据库连接池、向量库客户端，在此处统一释放
     logger.info("应用关闭")
 

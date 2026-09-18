@@ -335,7 +335,7 @@ async function uploadDoc() {
   const btn = document.getElementById("up-btn");
   if (!kbId) return showMsg(msgEl, "请先选择知识库", false);
   if (!file) return showMsg(msgEl, "请先选择文件", false);
-  showMsg(msgEl, "上传解析中…", true);
+  showMsg(msgEl, "上传成功，后台处理中…", true);
   btn.disabled = true;
   try {
     const fd = new FormData();
@@ -344,13 +344,31 @@ async function uploadDoc() {
     const out = document.getElementById("up-result");
     out.style.display = "block";
     document.getElementById("up-result-text").textContent =
-      `✅ 解析入库成功\n文件：${data.original_filename}\n大小：${data.file_size} 字节` +
-      `\n解析器：${data.parser_name || "unknown"}${data.degraded ? "（⚠️ 已降级解析）" : ""}` +
-      `\n清洗后字符数：${data.char_count}\n分块数：${data.chunk_count}` +
-      `\n预览：\n${data.preview || ""}`;
-    showMsg(msgEl, "", true);
+      `⏳ 已入队\n文件：${data.original_filename}\n大小：${data.file_size} 字节` +
+      `\n任务 ID：${data.task_id || "-"}\n状态：后台处理中…`;
+    await pollDocumentStatus(data.file_id, msgEl);
   } catch (err) { showMsg(msgEl, "❌ " + err.message, false); }
   finally { btn.disabled = false; }
+}
+
+async function pollDocumentStatus(fileId, msgEl) {
+  const out = document.getElementById("up-result-text");
+  for (let i = 0; i < 180; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const status = await api(`/api/v1/documents/${encodeURIComponent(fileId)}/status`);
+    const labels = {0: "待处理", 1: "处理中", 2: "完成", 3: "失败", 4: "降级完成"};
+    out.textContent = `文件：${fileId}\n状态：${labels[status.status] || status.status}` +
+      `\n任务尝试次数：${status.attempts}\n分块数：${status.chunk_count}` +
+      (status.parser_name ? `\n解析器：${status.parser_name}` : "") +
+      (status.parse_error ? `\n说明：${status.parse_error}` : "");
+    if (status.status === 2 || status.status === 4) {
+      showMsg(msgEl, status.status === 4 ? "处理完成（已降级解析）" : "处理完成", true);
+      loadKbs(); loadKbOptions();
+      return;
+    }
+    if (status.status === 3) throw new Error(status.parse_error || "文档处理失败");
+  }
+  throw new Error("处理超时，请稍后在文档列表查看状态");
 }
 
 /* ================= Tab 3：RAG 问答（SSE） ================= */

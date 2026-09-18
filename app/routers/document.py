@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Query, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from app.models.schemas import ApiResponse, DeleteResponse, UploadResponse
+from app.models.schemas import ApiResponse, DeleteResponse, DocumentStatusResponse, UploadResponse
 from app.service import document_service
 from app.utils.response import success
 
@@ -20,15 +20,25 @@ router = APIRouter(prefix="/api/v1/documents", tags=["文档"])
 @router.post(
     "/upload",
     response_model=ApiResponse[UploadResponse],
-    summary="上传文档（同步解析）",
+    summary="上传文档（异步处理）",
     description="支持txt / md / pdf / docx / xls / 图片等，单文件 ≤20MB；可选指定所属知识库 kb_id。",
 )
 async def upload_document(
     file: UploadFile = File(..., description="待上传文件"),
     kb_id: Optional[int] = Query(None, description="可选，指定所属知识库ID"),
 ) -> dict:
-    """上传文档：校验 → 保存 → 解析 → 分块 → 向量入库 → 返回结果。"""
-    result = await document_service.upload_document(file, kb_id)
+    """上传文档：保存后立即入队，解析和向量化由后台 worker 执行。"""
+    result = await document_service.upload_document_async(file, kb_id)
+    return success(data=result)
+
+
+@router.get(
+    "/{file_id}/status",
+    response_model=ApiResponse[DocumentStatusResponse],
+    summary="查询文档处理状态",
+)
+async def document_status(file_id: str) -> dict:
+    result = await run_in_threadpool(document_service.get_document_status, file_id)
     return success(data=result)
 
 

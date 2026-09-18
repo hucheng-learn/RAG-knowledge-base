@@ -79,7 +79,7 @@ def get_kb(kb_id: int) -> KnowledgeBaseDetail:
         return KnowledgeBaseDetail(
             id=kb.id, name=kb.name, description=kb.description,
             created_at=kb.created_at,
-            documents=[_to_doc_brief(d) for d in docs],
+        documents=[_to_doc_brief(d) for d in docs],
         )
     finally:
         session.close()
@@ -123,4 +123,7 @@ def _to_doc_brief(doc) -> DocumentBrief:
         char_count=doc.char_count,
         chunk_count=doc.chunk_count,
         created_at=doc.created_at,
+        status=doc.status,
+        parser_name=doc.parser_name,
+        parse_error=doc.parse_error,
     )
