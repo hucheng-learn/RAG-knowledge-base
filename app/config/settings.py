@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     rag_temperature: float = 0.3             # 知识库问答用较低温度，减少幻觉
     rag_max_tokens: int = 1024               # 回答最大 token 数
     rag_min_similarity: float = 0.3          # 召回相似度阈值：低于则视为无相关(过滤弱匹配)
+    llm_max_retries: int = 2
+    llm_retry_backoff_seconds: float = 1.0
+    rag_max_query_chars: int = 2000
 
     # ---------- 本地 MinerU ----------
     # 本地 MinerU 服务默认无鉴权，不设 API Key

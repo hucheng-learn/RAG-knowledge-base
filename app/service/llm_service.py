@@ -13,6 +13,7 @@
 """
 
 import json
+import asyncio
 from typing import AsyncIterator
 
 import httpx
@@ -60,33 +61,46 @@ async def stream_chat(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    max_retries = max(0, settings.llm_max_retries)
+    for attempt in range(max_retries + 1):
+        emitted = False
         try:
-            async with client.stream("POST", url, json=payload, headers=headers) as resp:
-                if resp.status_code != 200:
-                    body = (await resp.aread()).decode("utf-8", "ignore")
-                    logger.error("LLM 请求失败: status=%s body=%s", resp.status_code, body[:500])
-                    raise SystemException(f"大模型服务异常（{resp.status_code}）")
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        body = (await resp.aread()).decode("utf-8", "ignore")
+                        logger.error("LLM 请求失败: status=%s body=%s", resp.status_code, body[:500])
+                        if resp.status_code in {408, 429} or resp.status_code >= 500:
+                            raise httpx.HTTPStatusError("retryable", request=resp.request, response=resp)
+                        raise SystemException(f"大模型服务异常（{resp.status_code}）")
 
-                # 逐行读 SSE：事件以 "data: {...}\n\n" 分隔
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue  # 跳过空行/注释行
-                    data = line[len("data:"):].strip()
-                    if data == "[DONE]":
-                        break  # 流结束标记
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue  # 忽略无法解析的碎片
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta", {}) or {}
-                    content = delta.get("content")
-                    if content:
-                        # 只透出回答正文；reasoning_content 推理过程被丢弃
-                        yield content
-        except httpx.TimeoutException:
-            logger.exception("LLM 请求超时: model=%s", settings.llm_model)
-            raise SystemException("大模型请求超时，请稍后重试")
+                    # 逐行读 SSE：事件以 "data: {...}\n\n" 分隔
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue  # 跳过空行/注释行
+                        data = line[len("data:"):].strip()
+                        if data == "[DONE]":
+                            break  # 流结束标记
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue  # 忽略无法解析的碎片
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {}) or {}
+                        content = delta.get("content")
+                        if content:
+                            # 只透出回答正文；reasoning_content 推理过程被丢弃
+                            emitted = True
+                            yield content
+            return
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+            if emitted or attempt >= max_retries:
+                logger.exception("LLM 请求失败: model=%s attempt=%s", settings.llm_model, attempt + 1)
+                if isinstance(exc, httpx.TimeoutException):
+                    raise SystemException("大模型请求超时，请稍后重试") from exc
+                raise SystemException("大模型服务暂时不可用，请稍后重试") from exc
+            delay = settings.llm_retry_backoff_seconds * (2 ** attempt)
+            logger.warning("LLM 首 token 前重试: attempt=%s delay=%.1fs", attempt + 1, delay)
+            await asyncio.sleep(delay)

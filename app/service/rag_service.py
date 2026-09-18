@@ -22,6 +22,7 @@ from app.service.llm_service import stream_chat
 from app.service.vector_rebuild_service import rebuild_documents
 from app.service.vector_service import ensure_collection, search as milvus_search
 from app.utils.logger import get_logger
+from app.utils.exceptions import BizException
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -58,6 +59,8 @@ async def rag_answer(
         {"event": "delta", "data": "回答增量文本"}
         {"event": "done", "data": {"code","msg","answer","token_count"}}
     """
+    if len(query) > settings.rag_max_query_chars:
+        raise BizException(f"问题长度超过限制（最多 {settings.rag_max_query_chars} 个字符）")
     # 1. 问题向量化（GPU）
     svc = get_embedding_service()
     qv = await run_in_threadpool(svc.embed_query, query)

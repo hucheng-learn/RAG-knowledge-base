@@ -13,6 +13,7 @@
 
 import time
 import asyncio
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -83,6 +84,8 @@ async def request_log_middleware(request: Request, call_next) -> Response:
     异常时打印完整堆栈后重新抛出（交给全局异常处理器转统一响应）。
     """
     start = time.perf_counter()
+    trace_id = request.headers.get("X-Trace-Id") or uuid.uuid4().hex
+    request.state.trace_id = trace_id
     try:
         response = await call_next(request)
     except Exception:
@@ -90,9 +93,10 @@ async def request_log_middleware(request: Request, call_next) -> Response:
         raise
     cost_ms = (time.perf_counter() - start) * 1000
     logger.info(
-        "请求: %s %s -> %d (%.1fms)",
-        request.method, request.url.path, response.status_code, cost_ms,
+        "请求: trace_id=%s %s %s -> %d (%.1fms)",
+        trace_id, request.method, request.url.path, response.status_code, cost_ms,
     )
+    response.headers["X-Trace-Id"] = trace_id
     return response
 
 
