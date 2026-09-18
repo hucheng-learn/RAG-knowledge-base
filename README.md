@@ -74,7 +74,7 @@ docker compose -f deploy/docker-compose.yml ps              # 查看状态（rag
 docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qwen3:8b 来自本地模型仓库
 ```
 
-统一 Compose 与已有独立 Milvus/MinerU 服务会争用端口；切换前先停止冲突服务，或通过环境变量 `*_HOST_PORT` 覆盖端口。
+同一套 Compose 里 `backend` 与宿主 `uvicorn` 都占 8000：全栈起来后就别再在宿主跑 uvicorn；端口或模型路径冲突时用环境变量 `*_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖（写在 `deploy/.env`，仅 compose 插值读它）。
 
 启动后访问：
 
