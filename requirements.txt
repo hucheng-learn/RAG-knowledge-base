@@ -14,6 +14,9 @@ pdfplumber>=0.11.0             # PDF 逐页文本提取（替代已维护模式�
 sqlalchemy>=2.0.30             # ORM
 pymysql>=1.1.0                 # MySQL 驱动（纯 Python，无需编译）
 
+# ============ LLM 流式调用 / MinerU 解析（第五、八阶段） ============
+httpx>=0.27.0                  # DeepSeek API SSE 流式解析 + 本地 MinerU HTTP 调用
+
 # ============ Embedding / 向量库（第三阶段） ============
 # 说明：sentence-transformers 会自动拉取 CPU 版 torch；
 # 若需 GPU 加速，请先用官方命令按 CUDA 版本装 GPU torch（或直接用已装好 GPU torch 的 conda环境，如本项目实际的 rag_kb 环境），

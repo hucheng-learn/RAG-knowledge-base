@@ -2,7 +2,7 @@
 
 基于 FastAPI + Milvus + MySQL 的企业知识库 RAG 后端，配套极简前端页面。
 
-> **开发计划与进度跟踪见 `docs/PROJECT_PLAN.md`（唯一事实来源）。**
+> **开发计划与进度跟踪见** **`docs/PROJECT_PLAN.md`（唯一事实来源）。**
 > 技术方案与面试要点见 `docs/TECH_DESIGN.md`；协作约定（含文档同步、分支、下载/网络规则）见 `AGENTS.md`。
 
 ## 当前进度
@@ -57,33 +57,33 @@ uvicorn app.main:app --reload
 
 启动后访问：
 
-- **前端页面**：http://127.0.0.1:8000/ （知识库管理 / 文档上传 / RAG 问答）
-- Swagger 文档：http://127.0.0.1:8000/docs
-- 健康检查：http://127.0.0.1:8000/health
+- **前端页面**：<http://127.0.0.1:8000/> （知识库管理 / 文档上传 / RAG 问答）
+- Swagger 文档：<http://127.0.0.1:8000/docs>
+- 健康检查：<http://127.0.0.1:8000/health>
 
 ## 已提供接口
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/v1/documents/upload?kb_id=` | 上传文档（txt/pdf ≤20MB），同步解析/分块/向量入库 |
-| DELETE | `/api/v1/documents/{file_id}` | 删除文档（级联清理 Milvus/MySQL/文件） |
-| POST | `/api/v1/kbs` | 新建知识库 |
-| GET | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情 |
-| DELETE | `/api/v1/kbs/{id}` | 删除知识库（级联清理全部文档） |
-| POST | `/api/v1/chat` | RAG 问答（SSE 流式：start 溯源 / delta 回答 / done 结束） |
+| 方法     | 路径                                 | 说明                                           |
+| ------ | ---------------------------------- | -------------------------------------------- |
+| POST   | `/api/v1/documents/upload?kb_id=`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），同步解析/分块/向量入库 |
+| DELETE | `/api/v1/documents/{file_id}`      | 删除文档（级联清理 Milvus/MySQL/文件）                   |
+| POST   | `/api/v1/kbs`                      | 新建知识库                                        |
+| GET    | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情                                   |
+| DELETE | `/api/v1/kbs/{id}`                 | 删除知识库（级联清理全部文档）                              |
+| POST   | `/api/v1/chat`                     | RAG 问答（SSE 流式：start 溯源 / delta 回答 / done 结束） |
 
 ## 目录结构
 
 见 `docs/PROJECT_PLAN.md` 第 5 节。关键目录：
 
-| 路径 | 说明 |
-|---|---|
-| `app/` | 后端代码（config / routers / service / models / utils / static） |
-| `docs/` | `PROJECT_PLAN.md`（计划与进度，唯一事实来源）、`TECH_DESIGN.md`（技术方案与面试要点） |
-| `deploy/` | `docker-compose.milvus.yml`（Milvus）、`docker-compose.mineru.yml`（MinerU）、`mineru/`（部署说明） |
-| `sql/` | `schema.sql`——三张表建表 SQL（权威版本） |
-| `scripts/` | `verify_schema.py`（ORM↔DB 字段校验）、`rebuild_vectors.py`（向量重建/对账补偿） |
-| `tests/` | 回归测试（解析基线等） |
+| 路径         | 说明                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `app/`     | 后端代码（config / routers / service / models / utils / static）                              |
+| `docs/`    | `PROJECT_PLAN.md`（计划与进度，唯一事实来源）、`TECH_DESIGN.md`（技术方案与面试要点）                             |
+| `deploy/`  | `docker-compose.milvus.yml`（Milvus）、`docker-compose.mineru.yml`（MinerU）、`mineru/`（部署说明） |
+| `sql/`     | `schema.sql`——三张表建表 SQL（权威版本）                                                           |
+| `scripts/` | `verify_schema.py`（ORM↔DB 字段校验）、`rebuild_vectors.py`（向量重建/对账补偿）                         |
+| `tests/`   | 回归测试（解析基线等）                                                                             |
 
 ## 前端
 
@@ -91,17 +91,17 @@ uvicorn app.main:app --reload
 知识库管理（新建/列表/删除，**点「文档」查看库内文档列表并支持单文档删除**）、
 文档上传（选库上传显示解析结果，**同库同名文件会被拒绝，防止重复上传**）、
 RAG 问答（SSE 流式回答 + 溯源卡片）。
-由后端同源托管，启动后直接访问 http://127.0.0.1:8000/ 即可。
+由后端同源托管，启动后直接访问 <http://127.0.0.1:8000/> 即可。
 
 ## 支持的文件格式与解析器
 
-| 格式 | 解析器 | 说明 |
-|---|---|---|
-| `.txt` / `.md` | 原生轻量解析 | 无需外部服务，UTF-8/GBK 自适应 |
-| `.pdf` | `PDF_PARSER` 决定 | `pdfplumber`（基线，默认）或 `mineru`（结构化：标题/段落/表格/页码） |
-| `.doc` / `.docx` | 本地 MinerU | 结构化解析，含标题层级与表格 |
-| `.ppt` / `.pptx` / `.xls` / `.xlsx` | 本地 MinerU | 由 MinerU（DocVortex）提供解析能力 |
-| `.png` / `.jpg` / `.jpeg` | 本地 MinerU | 图片 OCR 识别文字后入库 |
+| 格式                                  | 解析器             | 说明                                             |
+| ----------------------------------- | --------------- | ---------------------------------------------- |
+| `.txt` / `.md`                      | 原生轻量解析          | 无需外部服务，UTF-8/GBK 自适应                           |
+| `.pdf`                              | `PDF_PARSER` 决定 | `pdfplumber`（基线，默认）或 `mineru`（结构化：标题/段落/表格/页码） |
+| `.doc` / `.docx`                    | 本地 MinerU       | 结构化解析，含标题层级与表格                                 |
+| `.ppt` / `.pptx` / `.xls` / `.xlsx` | 本地 MinerU       | 由 MinerU（DocVortex）提供解析能力                      |
+| `.png` / `.jpg` / `.jpeg`           | 本地 MinerU       | 图片 OCR 识别文字后入库                                 |
 
 - 白名单由 `.env` 的 `ALLOWED_EXTENSIONS` 控制；
 - **降级保护**：`PDF_PARSER=mineru` 时若 MinerU 不可用，PDF 会自动回退 `pdfplumber` 并在 `documents.parse_error` 记录降级原因（上传不会失败）；响应里的 `parser_name` / `degraded` 字段会告知实际使用的解析器；
@@ -110,7 +110,8 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 
 ## 环境注意
 
-- **Python 环境**：使用 conda 环境 **`rag_kb`**（含 GPU torch）；根目录 `.venv` 是早期 CPU 环境，已弃用；
+- **Python 环境**：使用 conda 环境 **`rag_kb`**（含 GPU torch）；
 - **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
-- **国内网络**：模型走 `hf-mirror.com` 直连；GitHub / docker.io / 官方 PyPI 需要本地代理；清华 PyPI、DaoCloud、ModelScope 直连更快（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
+- **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
 - **Docker**：Milvus / MinerU 均依赖 Docker Desktop（需先启动）；两者各自独立 compose，可按需启动。
+
