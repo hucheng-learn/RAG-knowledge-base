@@ -15,7 +15,7 @@
 - 第四阶段：知识库管理接口 + 文档删除级联（已完成）
 - 第五阶段：RAG 问答接口（SSE 流式 + 溯源）+ 前端单页（已完成）
 - 第八阶段：本地 MinerU 部署与结构化解析（已完成：多格式支持 + PDF 降级保护）
-- **第九阶段：结构化分块、异步入库与解析降级 —— ⬅ 下一步**（`assets` 由第八阶段移交至此）
+- **第九阶段：结构化分块、异步入库与解析降级 —— 🟡 进行中**（已接入结构化分块与块级溯源字段；`assets`、异步 worker 待完成）
 - 第六阶段：工程稳定性优化 —— 后移（与第九阶段的异步机制一并收口）
 - 第十阶段：Ollama 本地 LLM 与全链路私有化 —— 待开发
 - 第十一阶段：pdfplumber / MinerU 对照实验与面试报告 —— 待开发
@@ -114,4 +114,3 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 - **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
 - **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
 - **Docker**：Milvus / MinerU 均依赖 Docker Desktop（需先启动）；两者各自独立 compose，可按需启动。
-

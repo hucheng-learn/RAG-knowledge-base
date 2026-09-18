@@ -65,8 +65,9 @@ async def save_upload_file(upload_file: UploadFile) -> Path:
     任何失败都会清理半成品文件，保证 uploads 目录不留脏数据。
     """
     settings = get_settings()
+    # 后缀名校验
     validate_extension(upload_file.filename)
-
+    # 生成存储文件名
     storage_name = generate_storage_name(upload_file.filename)
     target_path = settings.upload_dir_path / storage_name
 

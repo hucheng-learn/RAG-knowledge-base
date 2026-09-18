@@ -1,4 +1,4 @@
-"""文本分块服务：chunk_size + overlap 滑动窗口，按页分块。
+"""文本分块服务：优先结构化分块，兼容按页滑动窗口。
 
 设计要点（面试重点，对应 PROJECT_PLAN 第二阶段）：
 1. chunk_size：检索粒度。太大语义被平均化、召回不精准、浪费 token；
@@ -23,11 +23,13 @@ logger = get_logger(__name__)
 
 @dataclass
 class TextChunk:
-    """一个分块：内容 + 文档内编号 + 来源页码。"""
+    """一个分块：内容、来源位置和结构化溯源信息。"""
 
     chunk_index: int   # 文档内全局块编号（从 0 开始）
     content: str       # 块文本（清洗后）
     page_number: int   # 来源页码（从 1 开始）
+    block_type: str | None = None
+    heading_path: list[str] | None = None
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list:
@@ -65,13 +67,19 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list:
     return chunks
 
 
-def chunk_document(parse_result: ParseResult, page_texts: list[str] | None = None) -> list:
-    """按页分块：每页内部滑动窗口切分，块携带页码信息。(按解析段分块，PDF 对应物理页，TXT 对应全文)
+def chunk_document(
+    parse_result: ParseResult,
+    page_texts: list[str] | None = None,
+    blocks: list | None = None,
+) -> list:
+    """分块：有结构块时按结构块切分，否则按页滑窗。
 
     Args:
         parse_result: 解析结果（含逐页文本 page_texts）。
         page_texts: 可选的分块文本页列表。传入时用于替代解析器原始文本，
             例如使用清洗后的逐页文本；未传入时保持原有行为。
+        blocks: 可选的清洗后结构化块。传入非空列表时优先使用，
+            每个块保留 block_type 和 heading_path 溯源信息。
 
     Returns:
         TextChunk 列表，chunk_index 为文档内全局编号。
@@ -79,13 +87,35 @@ def chunk_document(parse_result: ParseResult, page_texts: list[str] | None = Non
     settings = get_settings()
     chunks: list = []
     global_index = 0
+    source_blocks = parse_result.blocks if blocks is None else blocks
+    if source_blocks:
+        for block in source_blocks:
+            content = (block.content or "").strip()
+            if not content:
+                continue
+            pieces = chunk_text(content, settings.chunk_size, settings.chunk_overlap)
+            for piece in pieces:
+                chunks.append(
+                    TextChunk(
+                        chunk_index=global_index,
+                        content=piece,
+                        page_number=max(block.page_number, 1),
+                        block_type=block.block_type,
+                        heading_path=list(block.heading_path or []),
+                    )
+                )
+                global_index += 1
+        logger.info(
+            "结构化分块完成: 原始块=%d, 分块=%d (chunk_size=%d, overlap=%d)",
+            len(source_blocks), len(chunks), settings.chunk_size, settings.chunk_overlap,
+        )
+        return chunks
+
     # enumerate(start=1)：页码从 1 开始，符合人类阅读习惯
     source_pages = parse_result.page_texts if page_texts is None else page_texts
     for page_idx, page_text in enumerate(source_pages, start=1):
         for piece in chunk_text(page_text, settings.chunk_size, settings.chunk_overlap):
-            chunks.append(
-                TextChunk(chunk_index=global_index, content=piece, page_number=page_idx)
-            )
+            chunks.append(TextChunk(chunk_index=global_index, content=piece, page_number=page_idx))
             global_index += 1
 
     logger.info(

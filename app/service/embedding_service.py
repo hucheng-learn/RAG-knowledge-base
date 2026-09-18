@@ -52,8 +52,8 @@ class BgeEmbeddingService(EmbeddingService):
 
         settings = get_settings()
 
-        # HF_ENDPOINT 仅在「联网下载仓库名模型」时生效；本地路径加载不触发
-        # 下载，这行为「切换到 BAAI/bge-m3 等仓库名」时的镜像兜底，可 .env 覆盖。
+        # HF_ENDPOINT 仅在「联网下载仓库名模型」时生效；本地路径加载不触发下载
+        # 这行为「切换到 BAAI/bge-m3 等仓库名」时的镜像兜底，可被 .env 覆盖。
         os.environ.setdefault("HF_ENDPOINT", settings.hf_endpoint)
 
         # 设备兜底：配置要求 cuda 但 torch 非 GPU 版 / 驱动异常时回退 cpu，

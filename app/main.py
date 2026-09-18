@@ -12,9 +12,9 @@
 """
 
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -34,7 +34,7 @@ settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """应用生命周期钩子：启动时初始化，关闭时清理。"""
     # 启动：确保上传目录、日志目录存在（目录不存在时文件写入会报错）
     settings.ensure_dirs()
@@ -57,7 +57,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 全局异常处理器：所有异常统一转 {code, msg, data} 信封
+# 全局异常处理器：所有异常统一转 {code, msg, data} 返回格式
 register_exception_handlers(app)
 
 # 业务路由：文档上传/解析/删除 + 知识库管理 + RAG 问答
@@ -88,7 +88,7 @@ async def request_log_middleware(request: Request, call_next) -> Response:
 
 @app.get("/health", tags=["system"], summary="健康检查")
 async def health_check() -> dict:
-    """健康检查接口：探活用，返回服务基本信息（统一信封格式）。"""
+    """健康检查接口：探活用，返回服务基本信息（统一返回格式）。"""
     return success(
         data={"status": "ok", "app": settings.app_name, "version": settings.app_version},
     )

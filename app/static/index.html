@@ -335,7 +335,7 @@ async function uploadDoc() {
   const btn = document.getElementById("up-btn");
   if (!kbId) return showMsg(msgEl, "请先选择知识库", false);
   if (!file) return showMsg(msgEl, "请先选择文件", false);
-  showMsg(msgEl, "上传解析中（MinerU 首次解析需等引擎预热，最长约 2~3 分钟，之后约 3 秒）…", true);
+  showMsg(msgEl, "上传解析中…", true);
   btn.disabled = true;
   try {
     const fd = new FormData();

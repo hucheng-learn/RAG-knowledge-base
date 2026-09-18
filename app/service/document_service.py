@@ -10,6 +10,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from pathlib import Path
 
 from fastapi import UploadFile
@@ -19,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from app.config.settings import get_settings
 from app.models.orm import get_session
 from app.models.orm.chunk import Chunk
-from app.models.orm.document import Document
+from app.models.orm.document import Document, DocumentStatus
 from app.models.orm.knowledge_base import KnowledgeBase
 from app.models.schemas import UploadResponse
 from app.service.chunk_service import chunk_document
@@ -48,6 +49,8 @@ class _ChunkRecord:
     content: str
     chunk_index: int
     page_number: int
+    block_type: str | None
+    heading_path: list[str]
 
 
 async def upload_document(
@@ -81,8 +84,13 @@ async def upload_document(
         cleaned_page_texts = await run_in_threadpool(
             lambda: [clean_text(page) for page in parse_result.page_texts]
         )
+        cleaned_blocks = await run_in_threadpool(
+            lambda: [
+                _clean_block(block) for block in parse_result.blocks
+            ]
+        )
         chunks = await run_in_threadpool(
-            chunk_document, parse_result, cleaned_page_texts
+            chunk_document, parse_result, cleaned_page_texts, cleaned_blocks
         )
 
         # 解析降级信息（如 MinerU 失败回退 pdfplumber）：记录到 documents.parse_error，
@@ -153,6 +161,13 @@ def _embed_chunks(texts: list) -> list:
     return svc.embed_texts(texts)
 
 
+def _clean_block(block):
+    """清洗结构化块文本，同时保留块级溯源字段。"""
+    from dataclasses import replace
+
+    return replace(block, content=clean_text(block.content))
+
+
 def _build_degrade_note(parse_result, filename: str | None) -> str | None:
     """构造降级说明（记入 documents.parse_error）；未降级返回 None。"""
     meta = parse_result.metadata or {}
@@ -196,7 +211,7 @@ def _persist_document(
             file_size=file_size,
             char_count=len(cleaned),
             chunk_count=len(chunks),
-            status=2,  # 同步管线：解析完成
+            status=(DocumentStatus.DEGRADED if parse_error else DocumentStatus.COMPLETED),
             parse_error=parse_error,
             updated_at=now,
         )
@@ -209,6 +224,8 @@ def _persist_document(
                 kb_id=kb_id,
                 chunk_index=c.chunk_index,
                 content=c.content,
+                block_type=c.block_type,
+                heading_path=json.dumps(c.heading_path or [], ensure_ascii=False),
                 page_number=c.page_number,
             )
             for c in chunks
@@ -229,6 +246,8 @@ def _persist_document(
                 content=c.content,
                 chunk_index=c.chunk_index,
                 page_number=c.page_number,
+                block_type=c.block_type,
+                heading_path=c.heading_path or [],
             )
             for obj, c in zip(chunk_objs, chunks)
         ]

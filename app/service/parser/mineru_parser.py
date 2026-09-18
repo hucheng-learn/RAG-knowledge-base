@@ -41,6 +41,7 @@ class MinerUParser(DocumentParser):
         headers: dict[str, str] = {}
         base_url = settings.mineru_api_url.rstrip("/")
         try:
+            # 创建上传 → 上传文件 → 完成上传 → 创建解析任务 → 轮询任务 → 下载结构化 JSON → 下载 Markdown
             with httpx.Client(timeout=settings.mineru_timeout_seconds) as client:
                 upload = self._create_upload(client, base_url, file_path, headers)
                 file_id = self._upload_bytes(client, base_url, file_path, headers, upload)

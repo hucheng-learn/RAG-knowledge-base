@@ -5,6 +5,7 @@
 """
 
 from datetime import datetime
+from enum import IntEnum
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -20,6 +21,16 @@ from sqlalchemy.dialects.mysql import TINYINT
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.orm import Base
+
+
+class DocumentStatus(IntEnum):
+    """文档处理状态，供同步流程和后续异步 worker 共用。"""
+
+    PENDING = 0
+    PROCESSING = 1
+    COMPLETED = 2
+    FAILED = 3
+    DEGRADED = 4
 
 
 class Document(Base):
@@ -51,7 +62,7 @@ class Document(Base):
     )
     status: Mapped[int] = mapped_column(
         TINYINT, nullable=False, default=0, index=True,
-        comment="处理状态: 0-待解析 1-解析中 2-解析完成 3-失败",
+        comment="处理状态: 0-待解析 1-解析中 2-解析完成 3-失败 4-降级完成",
     )
     parse_error: Mapped[Optional[str]] = mapped_column(Text, comment="解析失败原因")
     created_at: Mapped[datetime] = mapped_column(

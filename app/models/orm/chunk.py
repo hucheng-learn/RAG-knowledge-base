@@ -30,6 +30,12 @@ class Chunk(Base):
         Integer, nullable=False, comment="文档内块编号（从0开始）",
     )
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="块原始文本")
+    block_type: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True, comment="结构化块类型(text/table/title/list等)",
+    )
+    heading_path: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="标题层级路径(JSON数组字符串)",
+    )
     token_count: Mapped[Optional[int]] = mapped_column(Integer, comment="token数量")
     embedding_status: Mapped[int] = mapped_column(
         TINYINT, nullable=False, default=0, index=True,

@@ -45,6 +45,24 @@ class ParsingBaselineTests(unittest.TestCase):
         self.assertEqual([chunk.page_number for chunk in chunks], [1, 2])
 
     @patch(
+        "app.service.chunk_service.get_settings",
+        return_value=SimpleNamespace(chunk_size=10, chunk_overlap=2),
+    )
+    def test_structured_chunks_preserve_block_metadata(self, _chunk_settings):
+        blocks = [
+            DocumentBlock("table", "A | B", 2, heading_path=["章节", "表格"]),
+            DocumentBlock("text", "0123456789ABCDE", 2, heading_path=["章节"]),
+        ]
+        result = ParseResult("", [], blocks=blocks)
+        chunks = chunk_document(result, blocks=blocks)
+
+        self.assertEqual(chunks[0].content, "A | B")
+        self.assertEqual(chunks[0].block_type, "table")
+        self.assertEqual(chunks[0].heading_path, ["章节", "表格"])
+        self.assertEqual([chunk.block_type for chunk in chunks[1:]], ["text", "text"])
+        self.assertTrue(all(chunk.heading_path == ["章节"] for chunk in chunks[1:]))
+
+    @patch(
         "app.utils.clean_text.get_settings",
         return_value=SimpleNamespace(
             clean_remove_invisible=True,

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/documents", tags=["文档"])
     "/upload",
     response_model=ApiResponse[UploadResponse],
     summary="上传文档（同步解析）",
-    description="支持 txt / 可复制文本 PDF，单文件 ≤ 20MB；可选指定所属知识库 kb_id。",
+    description="支持txt / md / pdf / docx / xls / 图片等，单文件 ≤20MB；可选指定所属知识库 kb_id。",
 )
 async def upload_document(
     file: UploadFile = File(..., description="待上传文件"),
