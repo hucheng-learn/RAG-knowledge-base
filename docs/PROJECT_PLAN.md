@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.40 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
+> 当前版本：v1.41 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -131,9 +131,8 @@ project_root/
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
 ├── deploy/
-│   ├── docker-compose.yml         # 全栈一键启动（MySQL/Milvus/MinerU/Ollama/后端，挂载宿主本地模型）
-│   ├── docker-compose.milvus.yml  # Milvus 单机部署（etcd+MinIO+standalone）
-│   └── docker-compose.mineru.yml  # MinerU 4.0 本地 V1 API 服务（宿主 8001，GPU）
+│   ├── docker-compose.yml         # 唯一入口：全栈一键启动（MySQL/Milvus/MinerU/Ollama/后端），也可按服务名只起依赖
+│   └── mineru/                    # MinerU 镜像构建与部署说明
 ├── sql/                           # MySQL 建表 SQL（权威版本）
 │   └── schema.sql                 # 三张表完整 DDL
 ├── scripts/                       # 工具脚本
@@ -213,7 +212,7 @@ project_root/
 ### 8.0.1 接续指引（新会话/新 Agent 从这里开始）
 
 - **当前进度**：第一~十阶段（不含第十一阶段）已完成；第十一阶段延期；
-- **环境**：Python 用 conda 环境 `rag_kb`；MySQL 本机常驻；Milvus `docker compose -f deploy/docker-compose.milvus.yml up -d`；MinerU `docker compose -f deploy/docker-compose.mineru.yml up -d`（`127.0.0.1:8001`，**容器启动后首次解析需等 vLLM warmup 约 2~3 分钟**）；后端 `uvicorn app.main:app --reload`（8000）；
+- **环境**：Python 用 conda 环境 `rag_kb`；MySQL 本机常驻（容器版在宿主 3307）；Milvus `docker compose -f deploy/docker-compose.yml up -d milvus`（容器 `rag-milvus`，宿主 19530，会带起 etcd/minio）；MinerU `docker compose -f deploy/docker-compose.yml up -d mineru` 或一把起全栈（`up -d`，`127.0.0.1:8001`，**容器启动后首次解析需等 vLLM warmup 约 2~3 分钟**）；后端 `uvicorn app.main:app --reload`（8000，别和容器 backend 同时起）；
 - **代码地图**：解析器 `app/service/parser/`（新增格式改 `__init__.py` 注册表）；分块 `chunk_service.py`；入库与降级 `document_service.py`；检索问答 `rag_service.py`；向量库 `vector_service.py`；配置 `app/config/settings.py` + `.env`；表结构 `sql/schema.sql`（改表后跑 `scripts/verify_schema.py`）；
 - **必读约定**：`AGENTS.md`——小步提交（只提交 `dev`）、改完必回写文档、下载前说明是否需要代理；
 - **已知技术债**：Milvus 本地持久化仍有丢失风险（已有 `scripts/rebuild_vectors.py` 兜底）；第十一阶段对照实验尚未执行。
@@ -282,7 +281,7 @@ project_root/
 当前进度（2026-09-18）：
 - ✅ 解析结果模型（`DocumentBlock` + `ParseResult` 结构化字段）、解析器选择配置、MinerU 4.0 V1 API 适配器、本地部署说明均已完成；
 - ✅ 官方 GPU 镜像 `mineru:4` 已构建完成（MinerU 4.0.1，含标准档模型权重，39.9GB）；
-- ✅ 新增项目自用 compose `deploy/docker-compose.mineru.yml`（宿主 **8001** → 容器 8000，只绑回环，避开本项目 8000 端口）；
+- ✅ 新增项目自用 compose `deploy/docker-compose.mineru.yml`（宿主 **8001** → 容器 8000，只绑回环，避开本项目 8000 端口）；该文件已于 v1.41 随统一 Compose 收口删除，其 `mineru` 服务定义迁入 `deploy/docker-compose.yml`；
 - ✅ **多格式支持**：`.txt/.md` 走原生轻量解析；`.pdf` 由 `PDF_PARSER` 决定；`.doc/.docx/.ppt/.pptx/.xls/.xlsx` 与 `.png/.jpg/.jpeg` 交给本地 MinerU；
 - ✅ **PDF 降级保护**：`PDF_PARSER=mineru` 时 MinerU 失败自动回退 pdfplumber，并在 `documents.parse_error` 记录降级原因 + 响应透出 `parser_name`/`degraded`；
 - ✅ MIME 按扩展名推断（不再写死 `application/pdf`）；`page_texts` 为空时按整篇单页兜底（避免分块 0 块）；
@@ -383,5 +382,6 @@ project_root/
 | 2026-09-18 | v1.38 | 修复 `app/config/settings.py` 的 Python 手误：`debug: bool = false` 中的小写 `false` 在类体执行时抛 `NameError`，导致 `app.main` 导入失败、`rag-backend` 容器反复重启（`Restarting (1)`）；改为 `False`，同时使代码默认值与 `.env`（`DEBUG=false`）、第 40 行注释「生产必须 false」及 compose 的 `DEBUG: ${DEBUG:-false}` 四者一致；全仓扫描确认无其他小写布尔值（`tests/test_stability.py:31` 的 `"done":true` 属 JSON 字面量，不动） | `docker compose up -d --build backend` 重建后 `/health` 返回 200、容器 healthy、7 个服务全部 Up；排查中同时清理了统一 Compose 上线后遗留的两个旧容器 `mineru-api` / `milvus-standalone`（释放约 216MB 并解除宿主 19530 端口潜在冲突） |
 | 2026-09-18 | v1.39 | 修复异步入库「集合不存在即任务判死」：`vector_service.delete_by_doc` 改为**幂等**（collection 不存在时跳过删除并记日志，不再抛 `MilvusException code=100`），新增 `collection_exists()` 辅助函数；`process_document_task` 调整为**先 `ensure_collection()` 再 `delete_by_doc()`**（原顺序把"集合丢失"误判成任务失败）；写入前保留第二次 `ensure_collection()` 作为长耗时解析期间集合被删的保护 | 统一 Compose 上线后 Milvus 换用命名卷 `milvus_data`（空），旧 `deploy/volumes/milvus` 数据不再被使用，集合不存在成常态；此时异步任务第一步"清理重试残留"就抛异常，重试 3 次后文档终态失败、分块数 0。实测：补建集合 + 重新入队后 task 一次成功（55 分块、chunk_id 1~55 全部写入 Milvus） |
 | 2026-09-18 | v1.40 | 清理切栈遗留的 bind 数据目录 `deploy/volumes/`（etcd 77.3MB + milvus 86.4MB + minio 1.1MB，共 164.8MB）：确认无任何容器挂载该路径（7 个 `rag-*` 容器全部使用命名卷 `deploy_*`）、独立 compose 已停用、旧 MySQL 侧无对应元数据，属不可复用的孤儿数据；`deploy/README.md` 同步说明该目录已删除及重建行为 | 该份数据是统一 Compose 上线前的独立 compose 产物，既不被当前栈读取、也无法与现有元数据对应，留着只占空间且容易在排查"向量丢失"时误导（v1.39 的 collection not found 正是切栈导致的，详见该行）；删除后全栈服务与 `/health` 复验正常 |
+| 2026-09-18 | v1.41 | 部署入口收口：删除 `deploy/docker-compose.milvus.yml` 与 `deploy/docker-compose.mineru.yml`（Milvus/MinerU 的独立 compose），`deploy/docker-compose.yml` 成为唯一入口——既支持 `up -d` 起全栈，也支持 `up -d milvus`（带起 etcd/minio）/ `up -d mineru` 只起依赖服务给宿主 uvicorn；同步更新 `AGENTS.md` 环境表、`README.md`（启动步骤/目录结构/环境注意）、`deploy/README.md`（启动命令、端口与冲突、命名卷说明）、`deploy/mineru/README.md`（方式一改写）、`TECH_DESIGN.md` 13.5、`PROJECT_PLAN` 目录结构与 8.0.1 接续指引；清理 `.gitignore` / `.dockerignore` 中已失效的 `deploy/volumes/` 忽略项 | 两套 compose 强绑定同一批宿主端口、不能并行，留着的唯一价值是"没有容器后端时只起 Milvus"；这用服务名子集即可实现，且后端镜像重建只要几秒（层全命中缓存），不需要为省一次构建维护第二套编排文件——少一套编排就少一类"跑错栈导致数据/向量对不上"的坑（v1.39/v1.40 的根因正是切栈） |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

@@ -38,15 +38,15 @@ pip install -r requirements.txt
 copy .env.example .env          # Windows
 # cp .env.example .env          # Linux/macOS
 
-# 4. 启动依赖服务（按需使用独立 compose）
-#    - MySQL：本机 MySQL80（需先运行）
-#    - Milvus：依赖 Docker
-docker compose -f deploy/docker-compose.milvus.yml up -d
+# 4. 启动依赖服务（统一 Compose，按需指定服务名；别连 backend 一起起，否则和宿主 8000 冲突）
+#    - MySQL：本地开发直接用本机 MySQL80（常驻），或容器版 mysql（宿主 3307）
+#    - Milvus：容器 rag-milvus（宿主 19530）；depends_on 会把 etcd/minio 一起带起来
+docker compose -f deploy/docker-compose.yml up -d milvus
 
 # 4.1 （可选）本地 MinerU 解析服务：仅当 .env 里 PDF_PARSER=mineru 时才需要
 #     镜像 mineru:4 由 MinerU 仓库 docker/china/Dockerfile 构建，模型权重已打进镜像；
 #     服务在 http://127.0.0.1:8001/v1（只绑回环、不出内网），需要 NVIDIA GPU
-docker compose -f deploy/docker-compose.mineru.yml up -d
+docker compose -f deploy/docker-compose.yml up -d mineru
 curl.exe http://127.0.0.1:8001/v1/health     # 健康检查
 #     注意：容器启动后"第一次"解析要等 vLLM 引擎 warmup（约 2~3 分钟），之后单篇约 3 秒
 
@@ -102,7 +102,7 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 | ---------- | --------------------------------------------------------------------------------------- |
 | `app/`     | 后端代码（config / routers / service / models / utils / static）                              |
 | `docs/`    | `PROJECT_PLAN.md`（计划与进度，唯一事实来源）、`TECH_DESIGN.md`（技术方案与面试要点）                             |
-| `deploy/`  | `docker-compose.yml`（全栈一键启动，含本地模型挂载）、`docker-compose.milvus.yml`（Milvus）、`docker-compose.mineru.yml`（MinerU）、`mineru/`（部署说明） |
+| `deploy/`  | `docker-compose.yml`（唯一入口：全栈一键启动 + 按服务名单独启动依赖，含本地模型挂载）、`mineru/`（MinerU 镜像构建与部署说明） |
 | `sql/`     | `schema.sql`——三张表建表 SQL（权威版本）                                                           |
 | `scripts/` | `verify_schema.py`（ORM↔DB 字段校验）、`rebuild_vectors.py`（向量重建/对账补偿）                         |
 | `tests/`   | 回归测试（解析基线等）                                                                             |
@@ -135,5 +135,5 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 - **Python 环境**：使用 conda 环境 **`rag_kb`**（含 GPU torch）；
 - **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
 - **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
-- **Docker**：可用 `deploy/docker-compose.yml` 一键启动全栈（模型直接挂载宿主本地目录，离线可用；模型路径由 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 指定），也可继续使用 Milvus/MinerU 独立 compose；切换两种方式前注意端口冲突。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连；
+- **Docker**：`deploy/docker-compose.yml` 是唯一入口——一键起全栈（模型直接挂载宿主本地目录，离线可用；模型路径由 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 指定），也可用 `up -d milvus` / `up -d mineru` 只起依赖服务给宿主 uvicorn 用（旧的 Milvus/MinerU 独立 compose 已删除）。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连；
 - **容器内的推理设备**：Embedding 在容器里默认 **CPU**（`EMBEDDING_DEVICE=cpu`，镜像内是 PyPI 默认 torch，本机 RTX 5080 属 Blackwell 架构需 cu128 及以上）；Ollama 与 MinerU 共用一张显卡，显存不足时按 `deploy/README.md` 的说明关掉 Ollama 的 GPU 预留。

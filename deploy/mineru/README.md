@@ -9,22 +9,23 @@
 - 推荐至少 16GB 系统内存；本项目验证机使用 NVIDIA GPU
 - 首次构建需要下载镜像和模型，模型文件应保存在本机受控目录
 
-## 方式一：项目自用 compose（推荐，端口已避开冲突）
+## 方式一：统一 Compose 的 mineru 服务（推荐，端口已避开冲突）
 
 ```powershell
 # 1) 构建镜像（在 MinerU 官方仓库根目录执行，国内用 china 版 Dockerfile）
 docker build -t mineru:4 -f docker/china/Dockerfile .
 
-# 2) 启动服务（在 RAG 项目根目录执行）
-docker compose -f deploy/docker-compose.mineru.yml up -d
+# 2) 启动服务（在 RAG 项目根目录执行；只想单起 MinerU 时用服务名）
+docker compose -f deploy/docker-compose.yml up -d mineru
 curl.exe http://127.0.0.1:8001/v1/health
 ```
 
-`deploy/docker-compose.mineru.yml` 要点：
+`deploy/docker-compose.yml` 的 `mineru` 服务要点：
 - 宿主端口 **8001** → 容器 8000：本项目 FastAPI 占用 8000，避免冲突，且与 `.env` 的 `MINERU_API_URL` 一致；
 - 端口只绑 `127.0.0.1`（回环），不暴露到局域网；
 - 预留 NVIDIA GPU（`device_ids: ["0"]`）、`ipc: host`、放宽 memlock；
-- `MINERU_MODEL_SOURCE=local`：使用镜像内模型，运行时不联网。
+- `MINERU_MODEL_SOURCE=local`：使用镜像内模型，运行时不联网；
+- 原来的独立 `deploy/docker-compose.mineru.yml` 已删除（v1.41），启动命令统一为上面这条。
 
 > ⚠️ 容器启动后**第一次**解析要等 vLLM 引擎 warmup（约 2~3 分钟），期间客户端可能遇到连接被拒；之后单篇解析约 3 秒。
 

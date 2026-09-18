@@ -30,8 +30,8 @@
 |---|---|
 | Python | conda 环境 `rag_kb`（GPU torch；`.venv` 已弃用） |
 | MySQL | 本机 MySQL80（常驻） |
-| Milvus | `docker compose -f deploy/docker-compose.milvus.yml up -d` |
-| MinerU | `docker compose -f deploy/docker-compose.mineru.yml up -d`（`127.0.0.1:8001`） |
+| Milvus | `docker compose -f deploy/docker-compose.yml up -d milvus`（容器 `rag-milvus`，宿主 19530，会带起 etcd/minio） |
+| MinerU | `docker compose -f deploy/docker-compose.yml up -d mineru`（容器 `rag-mineru`，`127.0.0.1:8001`） |
 | 后端 | `conda activate rag_kb` → `uvicorn app.main:app --reload` |
 
 ## 4. 开发

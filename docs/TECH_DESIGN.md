@@ -540,7 +540,7 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 
 **端口与安全**：
 - 本项目 FastAPI 占 8000，MinerU 服务映射到宿主 **8001**（`MINERU_API_URL=http://127.0.0.1:8001`）；
-- compose 在 `deploy/docker-compose.mineru.yml`（GPU 预留、`ipc: host`、放宽 memlock、只绑回环）。
+- compose 在 `deploy/docker-compose.yml` 的 `mineru` 服务（GPU 预留、`ipc: host`、放宽 memlock、只绑回环）；原独立 compose `deploy/docker-compose.mineru.yml` 已随统一 Compose 收口删除（v1.41），单起依赖用 `up -d mineru`。
 
 ### 13.5 实测结论与已知缺口
 
