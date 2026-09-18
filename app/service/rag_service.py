@@ -24,6 +24,7 @@ from app.service.vector_rebuild_service import rebuild_documents
 from app.service.vector_service import ensure_collection, search as milvus_search
 from app.utils.logger import get_logger
 from app.utils.exceptions import BizException
+from app.utils.token_utils import estimate_token_count
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -62,6 +63,9 @@ async def rag_answer(
     """
     if len(query) > settings.rag_max_query_chars:
         raise BizException(f"问题长度超过限制（最多 {settings.rag_max_query_chars} 个字符）")
+    query_tokens = estimate_token_count(query)
+    if query_tokens > settings.rag_max_query_tokens:
+        raise BizException(f"问题 token 长度超过限制（估算最多 {settings.rag_max_query_tokens}）")
     started = perf_counter()
     # 1. 问题向量化（GPU）
     svc = get_embedding_service()
@@ -134,9 +138,12 @@ async def rag_answer(
     # 4b. 组装上下文 + 系统提示词
     context = "\n\n".join(f"[来源{t['idx']}] {t['content']}" for t in trace)
     user_msg = f"参考资料：\n{context}\n\n问题：{query}"
+    input_tokens = estimate_token_count(user_msg)
+    if input_tokens > settings.llm_max_input_tokens:
+        raise BizException(f"问答上下文过长（估算 {input_tokens} tokens，最多 {settings.llm_max_input_tokens}）")
     logger.info(
-        "RAG阶段: trace_count=%d context_chars=%d total_pre_llm_ms=%.1f",
-        len(trace), len(context), (perf_counter() - started) * 1000,
+        "RAG阶段: trace_count=%d context_chars=%d input_tokens=%d total_pre_llm_ms=%.1f",
+        len(trace), len(context), input_tokens, (perf_counter() - started) * 1000,
     )
 
     # 5. 先发溯源，再流式回答
@@ -147,13 +154,18 @@ async def rag_answer(
         yield {"event": "delta", "data": token}
 
     answer = "".join(answer_parts)
+    output_tokens = estimate_token_count(answer)
+    logger.info(
+        "RAG阶段完成: output_tokens=%d total_ms=%.1f",
+        output_tokens, (perf_counter() - started) * 1000,
+    )
     yield {
         "event": "done",
         "data": {
             "code": 0,
             "msg": "ok",
             "answer": answer,
-            "token_count": len(answer),
+            "token_count": output_tokens,
         },
     }
 

@@ -119,6 +119,10 @@
         可上传格式由后端 <code>ALLOWED_EXTENSIONS</code> 控制；txt/md 本地轻量解析，
         pdf 由 <code>PDF_PARSER</code> 决定，docx/图片等交给本地 MinerU。
       </p>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px">
+        <input type="checkbox" id="up-overwrite">
+        同名文档处理成功后替换旧版本
+      </label>
       <div style="margin-top:14px">
         <button class="primary" id="up-btn" onclick="uploadDoc()">上传并解析</button>
       </div>
@@ -340,7 +344,8 @@ async function uploadDoc() {
   try {
     const fd = new FormData();
     fd.append("file", file);
-    const data = await api(`/api/v1/documents/upload?kb_id=${kbId}`, { method: "POST", body: fd });
+    const overwrite = document.getElementById("up-overwrite").checked;
+    const data = await api(`/api/v1/documents/upload?kb_id=${kbId}&overwrite=${overwrite}`, { method: "POST", body: fd });
     const out = document.getElementById("up-result");
     out.style.display = "block";
     document.getElementById("up-result-text").textContent =

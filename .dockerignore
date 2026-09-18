@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.test_files/
+.tmp/
+uploads/
+logs/
+deploy/volumes/
+models/
+*.md
+tests/

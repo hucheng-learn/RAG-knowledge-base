@@ -101,6 +101,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
     llm_retry_backoff_seconds: float = 1.0
     rag_max_query_chars: int = 2000
+    rag_max_query_tokens: int = 1024
+    llm_max_input_tokens: int = 8192
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
 
@@ -112,6 +114,8 @@ class Settings(BaseSettings):
     mineru_timeout_seconds: int = 300
     mineru_max_polls: int = 100
     mineru_poll_interval_seconds: float = 3.0
+    mineru_connect_retries: int = 3
+    mineru_retry_backoff_seconds: float = 2.0
 
     # ---------- 异步文档 worker ----------
     document_worker_enabled: bool = True

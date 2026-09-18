@@ -26,9 +26,10 @@ router = APIRouter(prefix="/api/v1/documents", tags=["文档"])
 async def upload_document(
     file: UploadFile = File(..., description="待上传文件"),
     kb_id: Optional[int] = Query(None, description="可选，指定所属知识库ID"),
+    overwrite: bool = Query(False, description="同名文档是否在新文档处理成功后替换旧文档"),
 ) -> dict:
     """上传文档：保存后立即入队，解析和向量化由后台 worker 执行。"""
-    result = await document_service.upload_document_async(file, kb_id)
+    result = await document_service.upload_document_async(file, kb_id, overwrite)
     return success(data=result)
 
 

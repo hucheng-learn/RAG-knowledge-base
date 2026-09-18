@@ -43,7 +43,9 @@ class MinerUParser(DocumentParser):
         try:
             # 创建上传 → 上传文件 → 完成上传 → 创建解析任务 → 轮询任务 → 下载结构化 JSON → 下载 Markdown
             with httpx.Client(timeout=settings.mineru_timeout_seconds) as client:
-                upload = self._create_upload(client, base_url, file_path, headers)
+                upload = self._create_upload_with_retry(
+                    client, base_url, file_path, headers, settings,
+                )
                 file_id = self._upload_bytes(client, base_url, file_path, headers, upload)
                 job = self._create_job(client, base_url, file_id, headers, settings)
                 result = self._poll_job(client, base_url, job["job_id"], headers, settings)
@@ -68,6 +70,27 @@ class MinerUParser(DocumentParser):
             (perf_counter() - started) * 1000,
         )
         return parsed
+
+    def _create_upload_with_retry(self, client, base_url, file_path, headers, settings):
+        """只对首次连接阶段的瞬时网络错误重试，避免重复创建解析任务。
+
+        MinerU 首次启动可能仍在加载引擎，此时端口会短暂拒绝连接。
+        上传请求成功后，后续任务状态由 MinerU 管理，不再整条链路重放，
+        因而不会因读取超时而产生重复任务。
+        """
+        retries = max(0, settings.mineru_connect_retries)
+        for attempt in range(retries + 1):
+            try:
+                return self._create_upload(client, base_url, file_path, headers)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                if attempt >= retries:
+                    raise
+                delay = settings.mineru_retry_backoff_seconds * (2 ** attempt)
+                logger.warning(
+                    "MinerU 首次连接失败，准备重试: 文件=%s attempt=%d/%d delay=%.1fs error=%s",
+                    file_path.name, attempt + 1, retries, delay, exc,
+                )
+                sleep(delay)
 
     @staticmethod
     def _raise_for_response(response: httpx.Response, operation: str) -> None:

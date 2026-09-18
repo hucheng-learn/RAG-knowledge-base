@@ -7,7 +7,7 @@
 
 ## 当前进度
 
-按执行顺序（`8 → 9 → 6 → 10 → 11 → 7`）：
+按执行顺序（`8 → 9 → 6 → 10 → 7`；第十一阶段延期）：
 
 - 第一阶段：项目骨架 + 文件上传解析模块（已完成）
 - 第二阶段：文本分块 + MySQL 元数据存储（已完成）
@@ -16,10 +16,10 @@
 - 第五阶段：RAG 问答接口（SSE 流式 + 溯源）+ 前端单页（已完成）
 - 第八阶段：本地 MinerU 部署与结构化解析（已完成：多格式支持 + PDF 降级保护）
 - **第九阶段：结构化分块、异步入库与解析降级 —— ✅ 已完成**（结构化分块、异步 worker、状态轮询、降级状态、SHA-256/解析缓存、assets manifest 均已接入）
-- 第六阶段：工程稳定性优化 —— 🟡 进行中（trace_id、LLM 重试、问题长度保护、进程内限流、RAG 阶段耗时日志已完成）
-- 第十阶段：Ollama 本地 LLM 与全链路私有化 —— 🟡 进行中（已支持 LLM_PROVIDER 切换与 qwen3 原生流式接口）
-- 第十一阶段：pdfplumber / MinerU 对照实验与面试报告 —— 待开发
-- 第七阶段：容器部署 —— 最后做（功能定型后一次完成）
+- **第六阶段：工程稳定性优化 —— ✅ 已完成**（trace_id、LLM 重试、字符/token 输入保护、进程内限流、RAG 阶段耗时日志）
+- **第十阶段：Ollama 本地 LLM 与全链路私有化 —— ✅ 已完成**（`LLM_PROVIDER` 切换与 qwen3 原生流式接口）
+- 第七阶段：容器部署 —— ✅ 已完成（后端镜像与统一 Compose）
+- 第十一阶段：pdfplumber / MinerU 对照实验与面试报告 —— ⏸ 延期，不纳入本轮
 
 > 阶段详情与接续指引见 `docs/PROJECT_PLAN.md`（8.0 总览 / 8.0.1 接续指引）。
 
@@ -38,7 +38,7 @@ pip install -r requirements.txt
 copy .env.example .env          # Windows
 # cp .env.example .env          # Linux/macOS
 
-# 4. 启动依赖服务
+# 4. 启动依赖服务（按需使用独立 compose）
 #    - MySQL：本机 MySQL80（需先运行）
 #    - Milvus：依赖 Docker
 docker compose -f deploy/docker-compose.milvus.yml up -d
@@ -55,6 +55,16 @@ uvicorn app.main:app --reload
 # 如需局域网/其他设备访问，改用：uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+需要一键启动完整本地栈时使用统一 Compose（会启动独立的 MySQL、Milvus、MinerU、Ollama 和后端）：
+
+```powershell
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml exec ollama ollama pull qwen3:8b
+docker compose -f deploy/docker-compose.yml ps
+```
+
+统一 Compose 与已有独立 Milvus/MinerU 服务会争用端口；切换前先停止冲突服务，或通过 `.env` 中的 `*_HOST_PORT` 覆盖端口。
+
 启动后访问：
 
 - **前端页面**：<http://127.0.0.1:8000/> （知识库管理 / 文档上传 / RAG 问答）
@@ -65,7 +75,7 @@ uvicorn app.main:app --reload
 
 | 方法     | 路径                                 | 说明                                           |
 | ------ | ---------------------------------- | -------------------------------------------- |
-| POST   | `/api/v1/documents/upload?kb_id=`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），保存后异步入队 |
+| POST   | `/api/v1/documents/upload?kb_id=&overwrite=false`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），保存后异步入队；显式覆盖同名旧文档 |
 | GET    | `/api/v1/documents/{file_id}/status` | 查询文档处理状态、任务尝试次数、解析器与错误信息 |
 | DELETE | `/api/v1/documents/{file_id}`      | 删除文档（级联清理 Milvus/MySQL/文件）                   |
 | POST   | `/api/v1/kbs`                      | 新建知识库                                        |
@@ -90,7 +100,7 @@ uvicorn app.main:app --reload
 
 极简单页已实现：单文件 `app/static/index.html`（原生 HTML/JS，无构建），三个 Tab：
 知识库管理（新建/列表/删除，**点「文档」查看库内文档列表并支持单文档删除**）、
-文档上传（选库上传显示解析结果，**同库同名文件会被拒绝，防止重复上传**）、
+文档上传（选库上传显示解析结果，**同库同名默认拒绝，可勾选处理成功后替换旧版本**）、
 RAG 问答（SSE 流式回答 + 溯源卡片）。
 由后端同源托管，启动后直接访问 <http://127.0.0.1:8000/> 即可。
 
@@ -114,4 +124,4 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 - **Python 环境**：使用 conda 环境 **`rag_kb`**（含 GPU torch）；
 - **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
 - **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
-- **Docker**：Milvus / MinerU 均依赖 Docker Desktop（需先启动）；两者各自独立 compose，可按需启动。
+- **Docker**：可用 `deploy/docker-compose.yml` 一键启动全栈，也可继续使用 Milvus/MinerU 独立 compose；切换两种方式前注意端口冲突。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连。

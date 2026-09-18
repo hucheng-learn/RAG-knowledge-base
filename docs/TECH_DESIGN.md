@@ -63,7 +63,7 @@
 
 解析/分块/入库任一环节失败 → **删除已落盘文件**，保证 uploads 目录不存在"没有数据库记录"的孤儿文件（全链路一致性）。
 
-### 2.4 同名文件冲突策略（v1.21 决策：改为显式覆盖，待实施）
+### 2.4 同名文件冲突策略（v1.21 决策：显式覆盖，已实施）
 
 **现状（v1.8 起）**：同一知识库下 `original_filename` 同名 → 拒绝上传（`_check_duplicate` 抛业务异常）。原意是避免同名文件在 Milvus 里留下两套相同向量、检索结果成对重复。
 
@@ -79,8 +79,8 @@
 **决策：走"显式覆盖"**——冲突不静默，把决定权交给用户：
 
 - 接口新增 `overwrite: bool = False`；为 `False` 时维持拒绝（安全默认），为 `True` 时执行替换；
-- `_check_duplicate` 区分冲突语义（返回旧文档信息或抛冲突码），前端据此弹「已存在同名文件《xx》，是否覆盖？」，确认后带 `overwrite=true` 重传；
-- 覆盖流程复用已有的 `purge_document`。
+- `_check_duplicate` 区分冲突语义；前端提供「同名文档处理成功后替换旧版本」确认勾选，确认后带 `overwrite=true` 上传；
+- 覆盖流程复用已有的 `purge_document`，新任务成功后清理同库同名旧文档；处理中任务仍拒绝覆盖。
 
 **实现要点（顺序是坑）**：
 
@@ -89,7 +89,7 @@
 3. `kb.doc_count` 要正确：替换需回退旧计数再 +1，可复用 `_compensate` 里 `greatest(doc_count - 1, 0)` 的写法。
 4. 审计：当前没有版本表，覆盖即丢失历史。这也正是选"显式确认"而非静默覆盖的原因；若将来要求历史留痕，就是策略 D（版本化）。
 
-**排期**：先做第九阶段（异步入库），本项记入优化点，之后实施。
+**状态**：已在第九阶段异步入库流程上实现；新文档失败时旧文档仍保留，任务成功后才执行清理。
 
 ---
 
@@ -397,6 +397,17 @@ event: done    data: {"code":0,"msg":"ok","answer":"完整回答","token_count":
 - 事件流中间件（请求日志）在 SSE 长连接上要避免缓冲/拦截；本实现 SSE 由 `StreamingResponse` 直接逐块写出；
 - `rag_answer` 是异步生成器，embedding/search/trace 用 `run_in_threadpool` 避免阻塞事件循环，LLM 流式本身是异步 httpx。
 
+### 11.6 稳定性保护（第六阶段）
+
+- **输入长度**：问题同时经过字符上限和轻量 token 估算；拼好的参考资料 + 问题在发送给 LLM 前再次估算，超过 `LLM_MAX_INPUT_TOKENS` 直接返回业务错误，避免把超长上下文交给模型后才失败。
+- **token 统计**：不在运行时下载各模型 tokenizer，`token_utils.estimate_token_count()` 对中文/非 ASCII 字符、ASCII 单词和标点做保守估算，日志和 SSE `done.token_count` 使用同一口径，适合容量保护而非计费。
+- **LLM 重试**：只在首 token 前捕获可重试的超时/网络/5xx/429，按指数退避重试；已经向客户端输出正文后不重放，避免回答前后拼接两次。
+- **限流与追踪**：单实例使用客户端 IP 的滑动窗口限流，响应带 `X-Trace-Id`；多实例部署时可把同一调用面替换为 Redis 等共享限流器。
+
+### 11.7 Ollama 本地流式协议（第十阶段）
+
+`LLM_PROVIDER=ollama` 时仍复用 `stream_chat()`，但请求切换到 Ollama 原生 `/api/chat`，逐行解析 JSON 的 `message.content`，并发送 `think=false`。这样可以明确丢弃 qwen3 的推理内容，只把回答正文转成现有 SSE `delta` 事件；`LLM_PROVIDER=deepseek` 仍走 OpenAI 兼容 `/chat/completions`。
+
 ---
 
 ## 12. 技术选型：自研编排 vs LangChain（设计决策记录）
@@ -541,13 +552,14 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 | `.png`（含中文说明） | mineru | **图片 OCR 成功**，识别文字进入向量库 |
 | `.pdf`（停掉 MinerU） | **pdfplumber（降级）** | 自动回退成功、`degraded=True`、上传未失败、降级原因入库 |
 
-**仍待第九阶段**：
+**第九阶段已完成的收口项**：
 
-1. **异步入库**：上传仍同步阻塞（MinerU 解析 + 向量化都在请求内完成），长文档会占住请求 → 改 `pending → processing → completed/degraded/failed` + 独立 worker；
-2. **`degraded` 状态值**：目前记录在 `parse_error` 文本中，第九阶段升级为独立状态（与异步状态机一起设计）；
-3. `assets`（图片/表格素材）未填充、`parser_version` 硬编码 `4.x`；
-4. **首次解析慢**：容器启动后首次解析需等 vLLM warmup（约 2~3 分钟），客户端应对瞬时连接错误做重试；
-5. MinerU 的 job 索引不是持久队列，容器重启后旧 job id 不可恢复，持久任务与重试需自建。
+1. 上传已改为 `pending → processing → completed/degraded/failed`，由独立 worker 执行解析、分块、Embedding 与 Milvus 双写；
+2. `degraded` 使用独立文档状态，降级原因仍写入 `parse_error` 便于排查；
+3. 结构化块中的图片/表格/公式资产已保存为文档级 `manifest.json`，删除文档时一并清理；
+4. 文件 SHA-256 + 解析器签名组成缓存键，缓存命中时只跳过解析，分块仍按当前配置重新计算；
+5. MinerU 首次冷启动仍可能需要 warmup，但客户端已对首次连接拒绝/连接超时做指数退避，持久 worker 负责后续任务重试；
+6. MinerU job 索引本身不作为持久队列，数据库 `document_tasks` 才是重启恢复和超时回收的事实来源。
 
 ---
 
@@ -558,4 +570,5 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 > v0.6 2026-09-17 新增第十二章：技术选型决策记录——自研编排 vs LangChain 的逐层对标、选型理由、取舍总览与混合演进路线。
 > v0.7 2026-09-18 新增第十三章：本地 MinerU 接入（私有部署边界、V1 API 作业流、ParseResult 结构化扩展的兼容设计、端口/安全边界、实测结论与已知缺口）。
 > v0.8 2026-09-18 第十三章补充：多格式分派（txt/md 原生、pdf 可切换、office/图片走 MinerU）、FallbackDocumentParser 降级设计与 except 变量作用域陷阱、MIME 按扩展名推断、五种格式实测结果。
-> v0.9 2026-09-18 新增 2.4 同名文件冲突策略决策：由「一律拒绝」改为「显式覆盖」（`overwrite` 参数 + 前端确认），含四种策略对比、先写后删的顺序约束、doc_count 与审计影响；待第九阶段后实施。
+> v0.9 2026-09-18 新增 2.4 同名文件冲突策略决策：由「一律拒绝」改为「显式覆盖」（`overwrite` 参数 + 前端确认），含四种策略对比、先写后删的顺序约束、doc_count 与审计影响。
+> v1.0 2026-09-18 补充第六阶段稳定性保护、第十阶段 Ollama 原生流式协议，以及第九阶段异步 worker/缓存/assets 的收口结论。

@@ -28,7 +28,7 @@ from app.models.orm import init_db
 from app.routers import chat, document, knowledge_base
 from app.utils.exceptions import register_exception_handlers
 from app.utils.logger import get_logger, setup_logging
-from app.utils.response import success
+from app.utils.response import json_fail, success
 from app.service.document_worker import run_document_worker
 
 # 模块顶部初始化日志（先于一切业务日志，保证启动期日志也能落盘）
@@ -97,7 +97,7 @@ async def request_log_middleware(request: Request, call_next) -> Response:
             bucket.popleft()
         if len(bucket) >= settings.rate_limit_requests:
             logger.warning("请求限流: trace_id=%s client=%s path=%s", trace_id, client_key, request.url.path)
-            response = success(data=None, msg="请求过于频繁，请稍后重试", code=429, status_code=429)
+            response = json_fail(429, "请求过于频繁，请稍后重试", status_code=429)
             response.headers["X-Trace-Id"] = trace_id
             return response
         bucket.append(now)

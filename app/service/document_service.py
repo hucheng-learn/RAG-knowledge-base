@@ -324,8 +324,8 @@ def _validate_kb(kb_id: int) -> None:
         session.close()
 
 
-def _check_duplicate(kb_id: int, original_filename: str) -> None:
-    """同一知识库下不允许同名文件，重复则抛业务异常。
+def _check_duplicate(kb_id: int, original_filename: str, overwrite: bool = False) -> None:
+    """检查同名文件；显式覆盖时保留旧文档直到新文档成功。
 
     理由：同名文件通常是同一份内容，重复上传会导致向量库中出现两套相同向量，
     检索时结果成对重复、浪费 top_k 名额（用户侧表现为「来源1和来源2一模一样」）。
@@ -340,11 +340,23 @@ def _check_duplicate(kb_id: int, original_filename: str) -> None:
             )
             .first()
         )
-        if exists is not None:
+        if exists is not None and not overwrite:
             raise BizException(
                 f"该知识库下已存在同名文件: {original_filename}",
                 code=RespCode.BIZ_ERROR,
             )
+        if exists is not None and overwrite:
+            active = (
+                session.query(Document.id)
+                .filter(
+                    Document.kb_id == kb_id,
+                    Document.original_filename == original_filename,
+                    Document.status.in_([DocumentStatus.PENDING, DocumentStatus.PROCESSING]),
+                )
+                .first()
+            )
+            if active is not None:
+                raise BizException("该文件已有任务处理中，完成后再执行覆盖", code=RespCode.BIZ_ERROR)
     finally:
         session.close()
 
@@ -413,7 +425,11 @@ def delete_document(file_id: str) -> dict:
     return {"deleted": True, "file_id": file_id, "doc_id": doc_id}
 
 
-async def upload_document_async(upload_file: UploadFile, kb_id: int | None = None) -> UploadResponse:
+async def upload_document_async(
+    upload_file: UploadFile,
+    kb_id: int | None = None,
+    overwrite: bool = False,
+) -> UploadResponse:
     """保存文件并创建 pending 文档任务，绝不在请求内解析或调用模型。"""
     from app.service.document_task_service import enqueue_document_task
 
@@ -423,7 +439,7 @@ async def upload_document_async(upload_file: UploadFile, kb_id: int | None = Non
         if kb_id is not None:
             await run_in_threadpool(_validate_kb, kb_id)
             if upload_file.filename:
-                await run_in_threadpool(_check_duplicate, kb_id, upload_file.filename)
+                await run_in_threadpool(_check_duplicate, kb_id, upload_file.filename, overwrite)
         doc_id = await run_in_threadpool(
             _create_pending_document,
             target_path.stem,
@@ -432,7 +448,11 @@ async def upload_document_async(upload_file: UploadFile, kb_id: int | None = Non
             file_sha256,
             kb_id,
         )
-        task_id = await run_in_threadpool(enqueue_document_task, doc_id)
+        task_id = await run_in_threadpool(
+            enqueue_document_task,
+            doc_id,
+            max_attempts=settings.document_worker_max_attempts,
+        )
         return UploadResponse(
             file_id=target_path.stem,
             original_filename=upload_file.filename or "",
@@ -472,6 +492,33 @@ def _create_pending_document(
         session.close()
 
 
+def _purge_replaced_documents(new_doc_id: int) -> None:
+    """新文档成功后清理同库同名旧文档，实现先写后删的覆盖语义。"""
+    session = get_session()
+    try:
+        current = session.query(Document).filter(Document.id == new_doc_id).first()
+        if current is None or current.kb_id is None:
+            return
+        old_docs = (
+            session.query(Document)
+            .filter(
+                Document.kb_id == current.kb_id,
+                Document.original_filename == current.original_filename,
+                Document.id != new_doc_id,
+            )
+            .all()
+        )
+        for old_doc in old_docs:
+            old_id = old_doc.id
+            purge_document(old_doc)
+            logger.info(
+                "覆盖旧文档: old_doc_id=%s new_doc_id=%s filename=%s",
+                old_id, new_doc_id, current.original_filename,
+            )
+    finally:
+        session.close()
+
+
 def process_document_task(task_id: int) -> None:
     """执行一个已领取任务：解析、结构化分块、向量双写并更新文档终态。"""
     from app.service.document_task_service import mark_task_failed, mark_task_succeeded
@@ -507,6 +554,7 @@ def process_document_task(task_id: int) -> None:
             for record, vector in zip(records, vectors)
         ])
         _mark_vectorized(doc_id)
+        _purge_replaced_documents(doc_id)
         mark_task_succeeded(task_id)
     except Exception as exc:
         logger.exception("异步文档处理失败: task_id=%s file=%s", task_id, filename)

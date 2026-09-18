@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """比对 ORM 模型列 与 实际数据库列，确认对齐。"""
+import sys
+from pathlib import Path
+
+# 直接执行 ``python scripts/verify_schema.py`` 时，Python 默认只把
+# scripts/ 放进 sys.path；显式加入项目根目录，保证 app 包可导入。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.models.orm import Base, get_engine
 
 import pymysql
@@ -35,7 +42,7 @@ for table in ["knowledge_bases", "documents", "chunks", "document_tasks", "parse
         print(f"  仅 DB 有(ORM缺): {only_db}")
         all_ok = False
     if not only_orm and not only_db:
-        print("  ✅ 列完全一致")
+        print("  [OK] 列完全一致")
 
 conn.close()
-print("\n结论:", "✅ ORM 与数据库已对齐" if all_ok else "❌ 仍有差异")
+print("\n结论:", "[OK] ORM 与数据库已对齐" if all_ok else "[FAIL] 仍有差异")
