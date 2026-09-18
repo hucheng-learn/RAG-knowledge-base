@@ -27,13 +27,13 @@
 ## 构建 + 启动
 
 ```powershell
-cd D:\program_data\deepseek\RAG-project
+cd D:\program_data\deepseek\RAG-project（选自己项目的目录）
 
-# 1）（可选）单独构建后端镜像，便于看清构建日志
+# 1）单独构建后端镜像，便于看清构建日志
 docker compose -f deploy/docker-compose.yml build backend
 
-# 2）构建并启动全栈（只有 backend 走 Dockerfile 构建，其余用现成镜像）
-docker compose -f deploy/docker-compose.yml up -d --build
+# 2）启动全栈（只有 backend 走 Dockerfile 构建，其余用现成镜像）
+docker compose -f deploy/docker-compose.yml up -d
 
 # 3）查看状态：rag-ollama 显示 healthy 才说明本地 qwen3:8b 已被正确识别
 docker compose -f deploy/docker-compose.yml ps
@@ -74,7 +74,29 @@ docker compose -f deploy/docker-compose.yml down -v           # 连命名卷一�
 
 ## 资源与已知限制
 
-- 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建（开发库里已有的数据在 `deploy/volumes/` 的独立 compose 下，两者不共享）；
+- 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建（开发库里已有的数据在 `deploy/volumes/` 的独立 compose 下，两者不共享）；**切栈后旧向量不会被带过来**，历史文档需要重新上传（或对 MySQL 里仍有 chunks 的文档跑 `scripts/rebuild_vectors.py`）；
 - **Embedding 默认 CPU 推理**（`EMBEDDING_DEVICE=cpu`）：镜像里装的是 PyPI 默认 torch，本机 RTX 5080 是 Blackwell 架构（需 cu128 及以上），因此不作为默认；要用 GPU 需自行替换镜像里的 torch 底座；
 - **Ollama 与 MinerU 共用一张显卡**：MinerU 先 warmup 占用显存，Ollama 再加载 qwen3:8b（约 5.2GB）。若 Ollama 报显存不足或明显回退到 CPU，删掉 `ollama:` 服务里的 `deploy.resources` 段落即可让它只走 CPU（或反过来给 MinerU 降档）；
 - 模型目录是 Windows bind mount，首次加载 qwen3:8b 会比镜像内层慢一些；`OLLAMA_KEEP_ALIVE` 默认已设为 `30m`，避免间隔稍长就重新加载。
+
+## 常见问题
+
+**上传后文档状态 `failed`，`last_error` 是 `collection not found[database=default][collection=doc_chunks]`**
+
+Milvus 换了数据卷（切栈、`down -v`、数据卷被删）后集合不存在，异步任务在解析前"清理重试残留"这一步就抛异常，重试 3 次后文档终态失败、分块数为 0。v1.39 起该步骤已幂等（无集合 → 跳过删除）且改为先 `ensure_collection()` 再清理，任务会自愈，重新上传即可。
+
+旧版本或已进入 `failed` 终态的任务，手工恢复两步：
+
+```powershell
+# 1）补建集合（等价于后端的 ensure_collection，用宿主 conda 环境执行）
+cd D:\program_data\deepseek\RAG-project
+conda activate rag_kb
+python -c "from app.service.vector_service import ensure_collection; ensure_collection()"
+
+# 2）把失败任务重新入队（MySQL 在容器的 3307 端口；attempts 归零以重置重试次数）
+#    update document_tasks set status=0, attempts=0, next_run_at=now(), locked_at=null, last_error=null where id=<task_id>;
+#    update documents set status=0, parse_error=null where id=<doc_id>;
+#    worker 会在下个轮询周期（默认 1s）自动领取并重新解析入库
+```
+
+注意：容器内跑的是**镜像里的代码**，改完源码要 `docker compose -f deploy/docker-compose.yml up -d --build backend` 才生效（源码没有挂进容器）。

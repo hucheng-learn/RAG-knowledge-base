@@ -218,6 +218,7 @@ documents + chunks **同一事务**：`add(doc) → flush()（拿自增 id）→
 - 核心逻辑已抽为 `vector_rebuild_service.rebuild_documents(doc_ids)`（幂等、纯增量），CLI（`scripts/rebuild_vectors.py`）、定时器、查询兜底三方复用；
 - 查询兜底的关键判定：**Milvus 检索只要 scope 里有向量就必返回 top_k**，因此"召回完全为空 + MySQL 有文档"必然等于"向量全丢"，不会误判；
 - 教训：Milvus 集合可能在服务运行期被外部删除，`ensure_collection` **不能做进程内"已就绪"缓存**，必须每次真查（真实踩过：缓存标志骗过检查导致持续 collection not found）。
+- 教训 2（对称的一条）：**"清理"类操作必须对"目标不存在"幂等**。`delete_by_doc` 在 collection 不存在时应直接返回（无向量可删 ≠ 出错），否则"集合被删/数据卷重置"这种可自愈的状态，会被重试前的清理步骤抛成 `MilvusException code=100`，把一次本可成功的入库任务判死；同理，清理必须排在 `ensure_collection()` **之后**——顺序反了就等于拿"集合还不存在"当失败条件。
 
 ### 6.6 字段设计：为异步管线预留的状态字段（第四阶段对齐）
 
@@ -241,7 +242,7 @@ documents + chunks **同一事务**：`add(doc) → flush()（拿自增 id）→
 
 第九阶段将 HTTP 上传与重处理解耦：上传只落盘、写 `documents(status=0)`、创建 `document_tasks` 后立即返回，worker 才执行 MinerU、清洗、结构化分块、Embedding 和 Milvus 双写；前端通过 `GET /api/v1/documents/{file_id}/status` 轮询终态。文件 SHA-256 与解析器配置生成缓存键，缓存只保存原始 `ParseResult`，分块仍按当前配置重新计算。MinerU 的表格/图片/公式结构块写入 `assets` manifest，删除文档时同时清理对应资产目录。
 
-worker 每次处理前先按文档删除已有 Milvus 向量，失败时再次补偿删除；因此任务重试是幂等的，不会因上一次在向量写入阶段崩溃而留下重复召回结果。
+worker 每次处理前先确保 collection 存在、再按文档删除已有 Milvus 向量，失败时再次补偿删除；因此任务重试是幂等的，不会因上一次在向量写入阶段崩溃而留下重复召回结果。解析与向量化可能持续数分钟，写入前会再 `ensure_collection()` 一次，覆盖"期间集合被外部删除"的窗口。
 
 ---
 
@@ -350,6 +351,7 @@ MySQL 落库（拿 chunk.id）→ 批量向量化 → 写 Milvus（主键=chunk.
 ### 10.3 幂等与容错
 
 - 每个删除环节单独 try/except：单点失败（如 Milvus 挂了）不阻断后续清理，只记 ERROR 日志——删除操作尽量"尽力而为"，不因一个依赖故障让整个删除失败卡住。
+- 幂等的具体形态（v1.39）：`delete_by_doc` 先判 `collection_exists()`，集合不存在时记 INFO 并返回。删除的语义是"让目标不存在"，目标本来就不存在时成功返回才是正确语义；把它当异常抛出，等于让"Milvus 数据被重置"这种本可自愈的状态升级成文档处理失败。
 
 ---
 

@@ -8,7 +8,9 @@
 3. 过滤字段 doc_id / chunk_index / page_number：按文档删除、按文档过滤检索
    （不用分区，简化；量级大再考虑 partition）；
 4. 相似度 COSINE（语义检索标准）+ HNSW 图索引（高召回，可配 M/efConstruction）；
-5. collection 惰性创建（ensure_collection 幂等），客户端进程内单例。
+5. collection 惰性创建（ensure_collection 幂等），客户端进程内单例；
+6. **删除/写入对「collection 不存在」健壮**：delete_by_doc 在没有集合时是空操作，
+   避免 Milvus 数据卷被重置后，入库任务被"清理重试残留"这一步误判为失败。
 """
 
 from pymilvus import DataType, MilvusClient
@@ -89,6 +91,11 @@ def ensure_collection() -> None:
     client.load_collection(settings.milvus_collection)
 
 
+def collection_exists() -> bool:
+    """collection 是否已存在（轻量 RPC，毫秒级）。"""
+    return get_client().has_collection(get_settings().milvus_collection)
+
+
 def insert_chunk_vectors(records: list) -> None:
     """批量插入块向量。
 
@@ -143,7 +150,19 @@ def search(query_vector: list, top_k: int, doc_ids: list = None) -> list:
 
 
 def delete_by_doc(doc_id: int) -> None:
-    """按文档删除全部向量（第四阶段删除文档时用）。"""
+    """按文档删除全部向量（删除文档 / 重试前清理用）。
+
+    **幂等**：collection 不存在时直接返回——删除的目标本来就不存在，
+    这不算错误。异步任务在解析前会先调本函数清理重试残留，若此处因为
+    「集合被删过/数据卷重置」抛 MilvusException(code=100)，就会把一次
+    本可成功的入库任务判死（本项目真实踩过）。
+    """
     settings = get_settings()
+    if not collection_exists():
+        logger.info(
+            "Milvus collection 不存在，跳过删除（无向量可删）: %s doc_id=%s",
+            settings.milvus_collection, doc_id,
+        )
+        return
     get_client().delete(settings.milvus_collection, filter=f"doc_id == {doc_id}")
     logger.info("Milvus 删除文档向量: doc_id=%s", doc_id)

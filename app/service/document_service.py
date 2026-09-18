@@ -535,6 +535,9 @@ def process_document_task(task_id: int) -> None:
     path = settings.upload_dir_path / f"{file_id}{get_extension(filename)}"
     try:
         _set_document_status(doc_id, DocumentStatus.PROCESSING)
+        # 先确保 collection 存在，再清理重试残留：顺序反了的话，
+        # 集合不存在时清理这一步会抛 collection not found，把任务直接判死。
+        ensure_collection()
         # 重试前清理上一次可能部分写入的向量，保证幂等重建不产生重复召回。
         delete_by_doc(doc_id)
         parser = get_parser(get_extension(filename))
@@ -547,6 +550,7 @@ def process_document_task(task_id: int) -> None:
         note = _build_degrade_note(parse_result, filename)
         records = _persist_existing_document(doc_id, cleaned, chunks, parse_result.parser_name, note)
         vectors = _embed_chunks([record.content for record in records])
+        # 解析+向量化耗时可达分钟级，期间集合仍可能被外部删除，写入前再确认一次。
         ensure_collection()
         insert_chunk_vectors([
             {"id": record.chunk_id, "vector": vector, "doc_id": doc_id,
