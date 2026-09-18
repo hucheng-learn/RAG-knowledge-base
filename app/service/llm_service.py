@@ -45,21 +45,33 @@ async def stream_chat(
         SystemException: LLM 返回非 200、超时等系统级异常。
     """
     settings = get_settings()
-    url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
+    is_ollama = settings.llm_provider == "ollama"
+    base_url = settings.ollama_base_url if is_ollama else settings.llm_base_url
+    model = settings.llm_model if settings.llm_provider != "ollama" else settings.llm_model
+    url = (
+        f"{base_url.rstrip('/').removesuffix('/v1')}/api/chat"
+        if is_ollama else f"{base_url.rstrip('/')}/chat/completions"
+    )
     payload = {
-        "model": settings.llm_model,
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
         "stream": True,
-        "temperature": settings.rag_temperature,
-        "max_tokens": settings.rag_max_tokens,
     }
-    headers = {
-        "Authorization": f"Bearer {settings.llm_api_key}",
-        "Content-Type": "application/json",
-    }
+    if is_ollama:
+        payload["think"] = False
+        payload["options"] = {
+            "temperature": settings.rag_temperature,
+            "num_predict": settings.rag_max_tokens,
+        }
+    else:
+        payload["temperature"] = settings.rag_temperature
+        payload["max_tokens"] = settings.rag_max_tokens
+    headers = {"Content-Type": "application/json"}
+    if settings.llm_api_key:
+        headers["Authorization"] = f"Bearer {settings.llm_api_key}"
 
     max_retries = max(0, settings.llm_max_retries)
     for attempt in range(max_retries + 1):
@@ -76,6 +88,18 @@ async def stream_chat(
 
                     # 逐行读 SSE：事件以 "data: {...}\n\n" 分隔
                     async for line in resp.aiter_lines():
+                        if is_ollama:
+                            if not line.strip():
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            content = (chunk.get("message") or {}).get("content")
+                            if content:
+                                emitted = True
+                                yield content
+                            continue
                         if not line.startswith("data:"):
                             continue  # 跳过空行/注释行
                         data = line[len("data:"):].strip()
