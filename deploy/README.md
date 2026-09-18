@@ -68,13 +68,13 @@ docker compose -f deploy/docker-compose.yml down -v           # 连命名卷一�
 
 默认宿主端口：后端 8000、MinerU 8001、MySQL 3307（避开本机 MySQL80 的 3306）、Milvus 19530/9091、MinIO 9000/9001、Ollama 11434。
 
-统一 compose 与独立 compose（`docker-compose.milvus.yml` / `docker-compose.mineru.yml`）**不能同时运行**，切换前先 `down` 掉另一方；独立 compose 的数据在 `deploy/volumes/`（bind 目录），`down` 不会删除。
+统一 compose 与独立 compose（`docker-compose.milvus.yml` / `docker-compose.mineru.yml`）**不能同时运行**，切换前先 `down` 掉另一方；独立 compose 的数据在 `deploy/volumes/`（bind 目录），`down` 不会删除——该目录当前**已删除**（2026-09-18 清理，释放约 165MB，那份数据属于切栈前的独立 compose 且已无引用），下次对独立 compose 执行 `up` 时 Docker 会自动重建空目录。
 
 覆盖端口与模型路径：在 `deploy/.env` 里写 `BACKEND_HOST_PORT` / `MINERU_HOST_PORT` / `MILVUS_HOST_PORT` / `OLLAMA_HOST_PORT` / `MYSQL_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH`，或直接作为 shell 环境变量传入。
 
 ## 资源与已知限制
 
-- 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建（开发库里已有的数据在 `deploy/volumes/` 的独立 compose 下，两者不共享）；**切栈后旧向量不会被带过来**，历史文档需要重新上传（或对 MySQL 里仍有 chunks 的文档跑 `scripts/rebuild_vectors.py`）；
+- 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建（开发库里已有的数据在独立 compose 的 `deploy/volumes/` 下，两者不共享，且该份旧数据已于 2026-09-18 删除）；**切栈后旧向量不会被带过来**，历史文档需要重新上传（或对 MySQL 里仍有 chunks 的文档跑 `scripts/rebuild_vectors.py`）；
 - **Embedding 默认 CPU 推理**（`EMBEDDING_DEVICE=cpu`）：镜像里装的是 PyPI 默认 torch，本机 RTX 5080 是 Blackwell 架构（需 cu128 及以上），因此不作为默认；要用 GPU 需自行替换镜像里的 torch 底座；
 - **Ollama 与 MinerU 共用一张显卡**：MinerU 先 warmup 占用显存，Ollama 再加载 qwen3:8b（约 5.2GB）。若 Ollama 报显存不足或明显回退到 CPU，删掉 `ollama:` 服务里的 `deploy.resources` 段落即可让它只走 CPU（或反过来给 MinerU 降档）；
 - 模型目录是 Windows bind mount，首次加载 qwen3:8b 会比镜像内层慢一些；`OLLAMA_KEEP_ALIVE` 默认已设为 `30m`，避免间隔稍长就重新加载。

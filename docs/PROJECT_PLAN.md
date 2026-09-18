@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.39 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
+> 当前版本：v1.40 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-18
 
 ---
 
@@ -382,5 +382,6 @@ project_root/
 | 2026-09-18 | v1.37 | 统一 Compose 改为**离线模型挂载**：Ollama 模型仓库（`qwen3:8b`）从宿主 `<工作区>/models` 挂到 `/root/.ollama/models`、bge-m3 从 `<工作区>/bge-m3` 只读挂到 `/models/bge-m3`，删除 `ollama pull` 步骤；新增 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖变量与 `OLLAMA_KEEP_ALIVE=30m`；Ollama 增加 `ollama show qwen3:8b` 健康检查、后端等待其健康、Ollama 增加 GPU 预留；`deploy/README.md` 重写前置条件与构建/启动/验证命令；README 与 `.env(.example)` 同步 | 模型已由用户下载到工作区，容器应直接用本地权重（客户内网/断网场景不可依赖 `ollama pull` 与 HuggingFace 下载）；同时修正原先默认的 bge-m3 挂载路径（`../models/bge-m3` 在真实工作区布局下不存在） |
 | 2026-09-18 | v1.38 | 修复 `app/config/settings.py` 的 Python 手误：`debug: bool = false` 中的小写 `false` 在类体执行时抛 `NameError`，导致 `app.main` 导入失败、`rag-backend` 容器反复重启（`Restarting (1)`）；改为 `False`，同时使代码默认值与 `.env`（`DEBUG=false`）、第 40 行注释「生产必须 false」及 compose 的 `DEBUG: ${DEBUG:-false}` 四者一致；全仓扫描确认无其他小写布尔值（`tests/test_stability.py:31` 的 `"done":true` 属 JSON 字面量，不动） | `docker compose up -d --build backend` 重建后 `/health` 返回 200、容器 healthy、7 个服务全部 Up；排查中同时清理了统一 Compose 上线后遗留的两个旧容器 `mineru-api` / `milvus-standalone`（释放约 216MB 并解除宿主 19530 端口潜在冲突） |
 | 2026-09-18 | v1.39 | 修复异步入库「集合不存在即任务判死」：`vector_service.delete_by_doc` 改为**幂等**（collection 不存在时跳过删除并记日志，不再抛 `MilvusException code=100`），新增 `collection_exists()` 辅助函数；`process_document_task` 调整为**先 `ensure_collection()` 再 `delete_by_doc()`**（原顺序把"集合丢失"误判成任务失败）；写入前保留第二次 `ensure_collection()` 作为长耗时解析期间集合被删的保护 | 统一 Compose 上线后 Milvus 换用命名卷 `milvus_data`（空），旧 `deploy/volumes/milvus` 数据不再被使用，集合不存在成常态；此时异步任务第一步"清理重试残留"就抛异常，重试 3 次后文档终态失败、分块数 0。实测：补建集合 + 重新入队后 task 一次成功（55 分块、chunk_id 1~55 全部写入 Milvus） |
+| 2026-09-18 | v1.40 | 清理切栈遗留的 bind 数据目录 `deploy/volumes/`（etcd 77.3MB + milvus 86.4MB + minio 1.1MB，共 164.8MB）：确认无任何容器挂载该路径（7 个 `rag-*` 容器全部使用命名卷 `deploy_*`）、独立 compose 已停用、旧 MySQL 侧无对应元数据，属不可复用的孤儿数据；`deploy/README.md` 同步说明该目录已删除及重建行为 | 该份数据是统一 Compose 上线前的独立 compose 产物，既不被当前栈读取、也无法与现有元数据对应，留着只占空间且容易在排查"向量丢失"时误导（v1.39 的 collection not found 正是切栈导致的，详见该行）；删除后全栈服务与 `/health` 复验正常 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
