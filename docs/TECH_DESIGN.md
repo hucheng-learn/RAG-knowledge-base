@@ -534,9 +534,13 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 | `.pdf` | `PDF_PARSER` 决定 | `pdfplumber`（基线）或 `MinerU`；选 MinerU 时包 `FallbackDocumentParser` |
 | `.doc/.docx/.ppt/.pptx/.xls/.xlsx/.png/.jpg/.jpeg` | `MinerUParser` | 多格式由 MinerU（DocVortex）解析 |
 
-**降级设计（`FallbackDocumentParser`）**：主解析器抛异常 → 记 WARNING → 用备用解析器解析 → 在 `ParseResult.metadata` 打标 `degraded/primary_parser/backup_parser/degrade_reason`；上层把降级原因写入 `documents.parse_error`，响应透出 `parser_name`/`degraded`。**原则：降级结果不伪装成完整解析**。
+**降级设计（`FallbackDocumentParser`）**：主解析器**抛异常或成功但输出无可用文本**（`page_texts` 全空）→ 记 WARNING → 用备用解析器解析 → 在 `ParseResult.metadata` 打标 `degraded/primary_parser/backup_parser/degrade_reason`；上层把降级原因写入 `documents.parse_error`，响应透出 `parser_name`/`degraded`。**原则：降级结果不伪装成完整解析**。
+
+> 「成功但无文本」也要降级是真实踩坑（v1.44）：图形化排版 PDF（脑图/流程图）被 MinerU 整页识别为一张大图，接口返回 200 但 `structured_content` 零文本块、markdown 全是 `data:image/...;base64` 内嵌图——旧逻辑只在异常时降级，于是产出 0 分块的「成功」文档，入库却永远检索不到。判定标准用 `page_texts` 而非 `text`：分块按页切分，`text` 可能只有 base64 噪声。
 
 > 注意：`except ... as exc` 块结束后 `exc` 会被 Python 删除，降级原因必须先在块内取成字符串。
+
+**base64 图片剥离（`MinerUParser`）**：MinerU 的 markdown 可能内嵌整页 base64 图（几十万字符），会污染 `documents.char_count` / 预览 / 解析缓存；`_strip_base64_images` 用正则把 `data:image/...;base64,...` 载荷替换为 `[image]` 占位符后再使用。
 
 **MIME 推断**：MinerU 支持多格式，上传时 `mime_type` 必须按扩展名推断（`mimetypes.guess_type`），不能写死 `application/pdf`。
 

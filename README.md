@@ -126,7 +126,7 @@ RAG 问答（SSE 流式回答 + 溯源卡片）。
 | `.png` / `.jpg` / `.jpeg`           | 本地 MinerU       | 图片 OCR 识别文字后入库                                 |
 
 - 白名单由 `.env` 的 `ALLOWED_EXTENSIONS` 控制；
-- **降级保护**：`PDF_PARSER=mineru` 时若 MinerU 不可用，PDF 会自动回退 `pdfplumber` 并在 `documents.parse_error` 记录降级原因（上传不会失败）；响应里的 `parser_name` / `degraded` 字段会告知实际使用的解析器；
+- **降级保护**：`PDF_PARSER=mineru` 时若 MinerU 不可用**或解析成功但没提取到文本**（如脑图等图形化 PDF 被整页识别成一张图），PDF 会自动回退 `pdfplumber` 并在 `documents.parse_error` 记录降级原因（上传不会失败）；响应里的 `parser_name` / `degraded` 字段会告知实际使用的解析器；
 - 使用 MinerU 解析的格式（docx/图片等）需要先启动 MinerU 服务；
 - 上传接口已改为异步入队；可通过 `/api/v1/documents/{file_id}/status` 查询处理进度。
 

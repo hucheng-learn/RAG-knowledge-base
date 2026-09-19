@@ -7,6 +7,7 @@
 
 import json
 import mimetypes
+import re
 from pathlib import Path
 from time import perf_counter, sleep
 from urllib.parse import urljoin
@@ -19,6 +20,24 @@ from app.utils.exceptions import BizException
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# MinerU 对图形化排版 PDF（脑图/流程图）会把整页图以
+# data:image/jpeg;base64,... 内嵌进 markdown，几十万字符噪声会流入
+# documents.char_count / 预览 / 解析缓存。剥离 base64 载荷，仅留占位符。
+_BASE64_IMG_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+")
+
+
+def _strip_base64_images(markdown: str) -> str:
+    """剥离 markdown 内嵌的 base64 图片载荷（保留其余文本结构）。"""
+    if "base64," not in markdown:
+        return markdown
+    stripped = _BASE64_IMG_RE.sub("[image]", markdown)
+    if len(stripped) != len(markdown):
+        logger.info(
+            "markdown base64 图片已剥离: 原字符数=%d 剥离后=%d",
+            len(markdown), len(stripped),
+        )
+    return stripped
 
 
 def guess_mime_type(filename: str) -> str:
@@ -209,6 +228,8 @@ class MinerUParser(DocumentParser):
                         "metadata": block,
                     })
             page_texts.append("\n\n".join(page_contents))
+        # markdown 可能内嵌整页 base64 图片（图形化 PDF），先剥离噪声再使用
+        markdown = _strip_base64_images(markdown)
         text = markdown or "\n\n".join(page_texts)
         # 兜底：structured_content 缺失但 markdown 成功时 page_texts 会是空列表，
         # 而分块是按 page_texts 切分的 → 会产出 0 块（文档入库却检索不到）。
