@@ -174,6 +174,8 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434/v1
       PDF_PARSER: ${PDF_PARSER:-mineru}
       MINERU_API_URL: http://mineru:8000
+      # advanced：VLM 能解析脑图/流程图等图形化内容（与官方 API 一致）；standard 更快但图形化排版会整页判成图片
+      MINERU_TIER: ${MINERU_TIER:-advanced}
       DOCUMENT_WORKER_ENABLED: ${DOCUMENT_WORKER_ENABLED:-true}
       # 日志的 %(asctime)s 与业务写入的 updated_at / next_run_at 都取进程本地时间
       # （logging 用 time.localtime、代码用 datetime.now()），容器默认 UTC 会整体慢 8 小时；

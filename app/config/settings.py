@@ -110,7 +110,9 @@ class Settings(BaseSettings):
     # 本地 MinerU 服务默认无鉴权，不设 API Key
     pdf_parser: str = "pdfplumber"  # pdfplumber 或 mineru
     mineru_api_url: str = "http://127.0.0.1:8001"  # MinerU 服务根地址，不含 /v1
-    mineru_tier: str = "standard"
+    # advanced：VLM 逐页理解，能解析脑图/流程图等图形化内容（与官方 API 质量一致）；
+    # standard：速度快但图形化排版会被整页判成图片（真实踩坑，见 TECH_DESIGN 13.4）
+    mineru_tier: str = "advanced"
     mineru_timeout_seconds: int = 300
     mineru_max_polls: int = 100
     mineru_poll_interval_seconds: float = 3.0

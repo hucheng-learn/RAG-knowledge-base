@@ -502,7 +502,7 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 ```
 ① POST /v1/uploads            创建上传（返回 upload_url）
 ② PUT  {upload_url}           上传文件字节 → POST /v1/uploads/{id}/complete
-③ POST /v1/parse/jobs         创建解析任务（tier + output_formats）
+③ POST /v1/parse/jobs         创建解析任务（tier + ocr_mode + output_formats）
 ④ GET  /v1/parse/jobs/{id}    轮询直到 completed/partial → 下载结果文件
    结果：structured_content（结构化 JSON）+ markdown
 ```
@@ -541,6 +541,8 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 > 注意：`except ... as exc` 块结束后 `exc` 会被 Python 删除，降级原因必须先在块内取成字符串。
 
 **base64 图片剥离（`MinerUParser`）**：MinerU 的 markdown 可能内嵌整页 base64 图（几十万字符），会污染 `documents.char_count` / 预览 / 解析缓存；`_strip_base64_images` 用正则把 `data:image/...;base64,...` 载荷替换为 `[image]` 占位符后再使用。
+
+**tier 取舍（v1.45 默认改 `advanced`）**：实测（脑图 PDF，1 页图形化排版）：`standard` 的版面模型把整页判成单个 `image` 区域直接渲染成图（`ocr_mode=ocr` 也救不了——OCR 只作用于文本区域），structured_content 零文本块；`advanced` 的 VLM 能把脑图转成 mermaid 结构文本（节点文字完整保留），与官方 API 质量一致。代价是 VLM 逐页推理、大文档解析更慢。`MINERU_TIER` 可在 `.env` / `deploy/.env` 覆盖回 `standard`（图形化文档仍有降级兜底走 pdfplumber）。
 
 **MIME 推断**：MinerU 支持多格式，上传时 `mime_type` 必须按扩展名推断（`mimetypes.guess_type`），不能写死 `application/pdf`。
 

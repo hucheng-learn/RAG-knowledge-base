@@ -34,7 +34,9 @@ curl.exe http://127.0.0.1:8001/v1/health
 ```ini
 PDF_PARSER=mineru                              # pdfplumber（基线）或 mineru
 MINERU_API_URL=http://127.0.0.1:8001           # 服务根地址，不含 /v1
-MINERU_TIER=standard
+# advanced（推荐）：VLM 逐页理解，脑图/流程图等图形化内容能转成结构化文本；
+# standard：快，但图形化排版 PDF 会被整页判成一张图（0 文本块，靠降级兜底）
+MINERU_TIER=advanced
 MINERU_TIMEOUT_SECONDS=300
 MINERU_MAX_POLLS=100
 MINERU_POLL_INTERVAL_SECONDS=3
