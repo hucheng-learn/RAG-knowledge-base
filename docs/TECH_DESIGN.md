@@ -251,7 +251,9 @@ worker 每次处理前先确保 collection 存在、再按文档删除已有 Mil
 - **滚动文件**：RotatingFileHandler，10MB/个 × 5 个备份，防日志无限膨胀（生产日志必须滚动）；
 - **文件格式带文件名行号** `(file.py:42)`，线上排查定位到行；
 - **请求日志中间件**：每个请求记 `方法 路径 -> 状态码 (耗时ms)`，异常打完整堆栈；
-- 日志级别、目录全部 .env 可配。
+- 日志级别、目录全部 .env 可配；
+- **时区必须与 MySQL 成对设置**（容器部署 v1.43）：日志时间 `%(asctime)s` 走 `time.localtime`、业务时间戳走 `datetime.now()`，两者都取**进程本地时区**；而 `created_at` / `next_run_at` 的默认值由 MySQL 侧 `DEFAULT CURRENT_TIMESTAMP` 生成（`time_zone=SYSTEM`，跟随容器时区）。所以 compose 里 `backend` 与 `mysql` 的 `TZ` 必须同值（默认 `Asia/Shanghai`）——只改一边，同一行内 `created_at` 与 `updated_at` 会差 8 小时，比"两边都偏 UTC"更难排查；
+- **两条日志通道各有不可替代项**：stdout（`docker logs`）独有 uvicorn 的访问行——`uvicorn.access` 的 logger 是 `propagate=False`，不会经过根 logger 的文件 handler；而 `logs/app.log` 独有文件名行号与滚动留存（容器删了文件仍在，便于回查历史）。
 
 ---
 

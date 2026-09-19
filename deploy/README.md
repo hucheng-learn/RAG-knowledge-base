@@ -74,7 +74,7 @@ docker compose -f deploy/docker-compose.yml down -v           # 连命名卷一�
 
 `backend` 占宿主 8000，与宿主直接跑 `uvicorn` 冲突：只想要依赖服务时**指定服务名**，例如 `up -d milvus`（Milvus 的 `depends_on` 会一并带起 etcd/minio）、`up -d mineru`，不要连 `backend` 一起起。旧版独立 compose（`docker-compose.milvus.yml` / `docker-compose.mineru.yml`）及其 bind 数据目录 `deploy/volumes/` 已删除（2026-09-18，释放约 165MB），因此不再存在"两套栈端口冲突、切换前先 down 另一方"的问题。
 
-覆盖端口与模型路径：在 `deploy/.env` 里写 `BACKEND_HOST_PORT` / `MINERU_HOST_PORT` / `MILVUS_HOST_PORT` / `OLLAMA_HOST_PORT` / `MYSQL_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH`，或直接作为 shell 环境变量传入。
+覆盖端口与模型路径：在 `deploy/.env` 里写 `BACKEND_HOST_PORT` / `MINERU_HOST_PORT` / `MILVUS_HOST_PORT` / `OLLAMA_HOST_PORT` / `MYSQL_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` / `TZ`，或直接作为 shell 环境变量传入。
 
 ## 资源与已知限制
 
@@ -102,5 +102,28 @@ python -c "from app.service.vector_service import ensure_collection; ensure_coll
 #    update documents set status=0, parse_error=null where id=<doc_id>;
 #    worker 会在下个轮询周期（默认 1s）自动领取并重新解析入库
 ```
+
+**日志时间（和 `created_at`）比宿主慢 8 小时**
+
+容器默认 UTC，而本项目的代码用 `datetime.now()` 取**进程本地时间**（日志的 `%(asctime)s` 走 `logging`→`time.localtime`，`updated_at` / `next_run_at` 直接 `datetime.now()`），MySQL 侧的 `created_at` / `next_run_at` 默认值则由 `DEFAULT CURRENT_TIMESTAMP` 生成（`time_zone=SYSTEM`，跟随容器时区）。所以 `backend` 与 `mysql` 的 TZ 必须**成对设置**——只改一个，同一行里 `created_at` 和 `updated_at` 就会差 8 小时。compose 已给这两个服务注入 `TZ: ${TZ:-Asia/Shanghai}`：
+
+```dotenv
+# deploy/.env（可选，不设即为 Asia/Shanghai）
+TZ=Asia/Shanghai
+```
+
+改完需重建容器才生效（命名卷数据保留）：
+
+```powershell
+docker compose -f deploy/docker-compose.yml up -d mysql backend
+docker exec rag-backend date                                   # 应显示 CST
+docker exec rag-mysql mysql -uroot -p123456 -e "select @@system_time_zone, now();"
+```
+
+注意：TZ 只影响**新写入**的时间，已按 UTC 落库的历史行不会被回改，看起来仍会早 8 小时。
+
+**在容器里看日志，还是看项目的 `logs/`？**
+
+两者不是同一份拷贝、也不能互相替代：`logs/` 由 compose 以 `../logs:/app/logs` 挂进容器，所以容器内 `/app/logs/app.log` 和宿主 `logs/app.log` **是同一个文件**（应用自己的日志写这里，带 `(file.py:42)` 行号、10MB×5 滚动、容器删了仍在）；`docker logs` 是 stdout 通道，独有 uvicorn 访问行（`uvicorn.access` 的 logger 设了 `propagate=False`，不进文件）与容器启动/崩溃的 stderr。定位代码行看 `logs/app.log`，查启动失败/访问量看 `docker logs`。
 
 注意：容器内跑的是**镜像里的代码**，改完源码要 `docker compose -f deploy/docker-compose.yml up -d --build backend` 才生效（源码没有挂进容器）。

@@ -17,6 +17,10 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-123456}
       MYSQL_DATABASE: ${MYSQL_DB:-rag_knowledge}
+      # 容器默认 UTC。created_at 由 MySQL 侧的 DEFAULT CURRENT_TIMESTAMP 生成
+      # （default-time-zone=SYSTEM，跟随容器时区），而 updated_at / next_run_at 是
+      # backend 用 datetime.now() 写的本地时间——两处必须同一时区，否则同表内差 8 小时。
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "127.0.0.1:${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
@@ -171,6 +175,10 @@ services:
       PDF_PARSER: ${PDF_PARSER:-mineru}
       MINERU_API_URL: http://mineru:8000
       DOCUMENT_WORKER_ENABLED: ${DOCUMENT_WORKER_ENABLED:-true}
+      # 日志的 %(asctime)s 与业务写入的 updated_at / next_run_at 都取进程本地时间
+      # （logging 用 time.localtime、代码用 datetime.now()），容器默认 UTC 会整体慢 8 小时；
+      # 需与 mysql 服务同一个值，保证 DB 内时间基准一致。
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
