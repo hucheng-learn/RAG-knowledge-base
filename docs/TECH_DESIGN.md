@@ -660,7 +660,7 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 | P0 ✅ | 布局骨架 + 知识库（表格模式） | 已有接口 |
 | P0 ✅ | 文档（上传 + Pipeline 状态可视化 + 文档表） | 已有接口（status 轮询） |
 | P0 ✅ | AI 助手（SSE 流式 + Markdown + 引用来源抽屉） | 已有 `/api/v1/chat` |
-| P0 | 检索测试（Query → Retriever → 最终 Context） | **新增 `POST /api/v1/retrieval/test`（只检索不生成）** |
+| P0 ✅ | 检索测试（Query → Retriever → 最终 Context） | 已有 `POST /api/v1/retrieval/test`（只检索不生成） |
 | P1 | Chunk 查看器（原文 ↔ Chunk ↔ Metadata） | 需新增按文档查 chunk 接口 |
 | P1/P2 | 工作台 / 模型中心 / 监控 / 历史会话 | 部分需后端新增能力 |
 
@@ -689,3 +689,4 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 > v1.2 2026-09-23 新增第十五章：前端架构与 UI/UX 重构——Vue 3 + Element Plus 选型、hash 路由约束、构建产物入库使 Docker 不含 Node 阶段、EP `@forward` 主题定制与 `$font-family` 陷阱、P0/P1 页面与诚实边界（dense-only）。
 > v1.3 2026-09-23 15.5 进度更新（知识库/文档页已交付）、15.6 补记两条：Pipeline 任务级粒度诚实边界（不伪造细分步骤进度）、vue-tsc 跨函数属性窄化陷阱。
 > v1.4 2026-09-23 15.5 进度更新（Chat 页已交付）；15.6 补记：SSE 客户端必须用原生 fetch+ReadableStream（axios 的 responseType:'stream' 在浏览器端不可用）、中断问答用 AbortController 且必须在 catch 里用 signal.aborted 区分"用户主动停止"与真实错误（前者保留部分回答、后者进错误气泡）。
+> v1.5 2026-09-23 15.5 进度更新（检索测试页，P0 四页全部交付）；补充 `retrieve_only` 与 `rag_answer` 的链路共用边界（不调 LLM、命中为空不触发重建/兜底话术——测试页要的是检索质量本身）。

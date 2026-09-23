@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.49 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
+> 当前版本：v1.50 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
 
 ---
 
@@ -332,7 +332,7 @@ project_root/
 - 技术栈：Vue 3 + TypeScript + Vite + Element Plus + SCSS + Pinia + Axios；hash 路由（StaticFiles 无 history 模式 404 回退能力，见 TECH_DESIGN §15.2）；
 - 页面范围（P0 先行，P1/P2 待验收后排期）：布局骨架（Sidebar 232px + Header 56px）→ 知识库（表格模式）→ 文档（上传 + Pipeline 状态可视化 + 文档表）→ AI 助手（SSE 流式 + Markdown + 引用来源）→ 检索测试（后端补"只检索不生成"接口）；
 - 构建与部署：`frontend/` 源码入库；`npm run build:static` 构建并将 dist **同步覆盖** `app/static/`（清空旧单页 index.html），产物随 git 提交——**Docker 镜像构建不需要 Node**；npm 依赖走 npmmirror 镜像（国内直连，免代理）；
-- 提交拆分：① 脚手架 + Design Tokens + 布局 + 路由占位（✅ 0676457）→ ② 知识库页（✅ 85f6bb4）→ ③ 文档页（✅ 7db5639）→ ④ Chat 页（✅ 见 v1.49）→ ⑤ 检索测试（含后端接口）→ ⑥ 构建产物替换上线 + 端到端验收 + 文档回写。
+- 提交拆分：① 脚手架 + Design Tokens + 布局 + 路由占位（✅ 0676457）→ ② 知识库页（✅ 85f6bb4）→ ③ 文档页（✅ 7db5639）→ ④ Chat 页（✅ 8783029）→ ⑤ 检索测试（✅ 见 v1.50）→ ⑥ 构建产物替换上线 + 端到端验收 + 文档回写。
 
 ---
 
@@ -408,5 +408,6 @@ project_root/
 | 2026-09-23 | v1.47 | 知识库页交付：表格（名称/描述/文档数/创建时间/操作）、新建对话框（name 唯一 + 字数限制）、ElMessageBox 删除二次确认、行内「文档」跳转 `#/documents?kb_id=`；KB 列表入 Pinia store 供多页共用；`utils/format.ts`（大小/时间格式化）；浏览器端到端冒烟通过（localhost:5173，布局/创建/跳转/样式无 error） | P0 第一页；vite dev 只监听 ::1 需用 localhost 访问（127.0.0.1 拒连），记入 15.6 |
 | 2026-09-23 | v1.48 | 文档页交付：目标知识库选择器（带 `?kb_id=` 跳转入参）、拖拽多文件上传（el-upload 手动模式 + 同名覆盖勾选）、上传后串行轮询文档状态（1s×180 次上限）、`ProcessingPipeline.vue` 处理管线可视化（上传落盘→格式校验→文档解析→文本清洗→智能分块→向量嵌入→Milvus 写入→处理完成）、`StatusTag.vue` 状态标签（0/1/2/3/4 五态）、文档表格（文件名/大小/状态/分块数/解析器/时间）+ 单文档级联删除确认；浏览器冒烟 7 项全通过（含真实 txt 上传→worker 处理→表格出现→删除完整链路） | P0 第二页；后端任务只暴露文档级状态，Pipeline 处理中时"解析→入库"组整体高亮、不伪造细分进度（诚实边界，见 TECH_DESIGN §15.5）；多文件串行处理避免并发抢占 embedding |
 | 2026-09-23 | v1.49 | Chat 问答页交付：`api/chat.ts` 原生 fetch + ReadableStream 解析 SSE（axios 不支持流式），事件协议 start(溯源数组)→delta(token)→done(code/msg/answer/token_count) 与后端一致；消息列表（用户/AI 气泡）、流式逐字渲染 + 闪烁光标、`MarkdownBlock.vue`（marked + DOMPurify 消毒 v-html，防 LLM 输出 XSS）、「引用 N 条来源」按钮 + 引用抽屉（[来源N]/文档名/相似度/页码/完整片段）、停止生成（AbortController 中断，保留部分回答并标记"（已停止生成）"）、后端分级兜底提示以警示气泡展示（无向量重建中/无文档/未检索到，answer 为空时 notice 态）、Enter 发送 / Shift+Enter 换行、清空对话；浏览器冒烟 8 项全通过（真实问答链路：上传语料→带引用问答→无关问题兜底→停止生成） | P0 第三页；复用后端 `/api/v1/chat` 现有接口零改动；溯源 trace 字段（idx/doc_name/content/page/similarity）与检索测试接口的 RetrievalHit 结构一致 |
+| 2026-09-23 | v1.50 | 检索测试接口 + 页面：`schemas.py` 新增 RetrievalTestRequest/RetrievalHit/RetrievalTestResponse；`rag_service.retrieve_only()`（复用作答的 embedding→ensure_collection→召回→阈值过滤→`_build_trace` 溯源链路，**不调 LLM**，命中为空不触发重建/兜底话术，返回 embedding/retrieval/total 三档耗时）；`routers/retrieval.py`（POST /api/v1/retrieval/test）+ main.py 注册；前端 `views/Retrieval.vue`（知识库/top_k 选择、命中卡片 [来源N]/文档名/相似度/页码/原文、耗时 tag、未命中空态、dense-only 说明卡）；浏览器冒烟通过（命中卡片与耗时真实展示、top_k 生效、Enter 触发、无 console error） | P0 第四页；调参入口——换 embedding / top_k / rag_min_similarity 先看本页再动问答；实测 Wi-Fi 问题命中 0.5882（embedding 71.7ms，模型预热后）、无关问题"如何做一道菜"命中 0.3852（KB 内仅 1 chunk，ANN 必返回，超出 0.3 阈值故通过——真实 dense-only 行为，页面如实展示相似度而非隐藏） |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
