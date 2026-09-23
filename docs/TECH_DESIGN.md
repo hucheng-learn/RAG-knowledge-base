@@ -657,8 +657,8 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 
 | 优先级 | 页面 | 后端依赖 |
 |---|---|---|
-| P0 | 布局骨架 + 知识库（表格模式） | 已有接口 |
-| P0 | 文档（上传 + Pipeline 状态可视化 + 文档表） | 已有接口（status 轮询） |
+| P0 ✅ | 布局骨架 + 知识库（表格模式） | 已有接口 |
+| P0 ✅ | 文档（上传 + Pipeline 状态可视化 + 文档表） | 已有接口（status 轮询） |
 | P0 | AI 助手（SSE 流式 + Markdown + 引用来源抽屉） | 已有 `/api/v1/chat` |
 | P0 | 检索测试（Query → Retriever → 最终 Context） | **新增 `POST /api/v1/retrieval/test`（只检索不生成）** |
 | P1 | Chunk 查看器（原文 ↔ Chunk ↔ Metadata） | 需新增按文档查 chunk 接口 |
@@ -671,6 +671,8 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 1. **npm 缓存目录沙箱/权限**：默认 cache 在 `D:\program_data\npm`（Agent 沙箱不可写）报 EPERM，且中断的安装会留下残缺 `node_modules`（二次安装报 `ENOTEMPTY: rmdir minimatch/dist/commonjs`）。解法：`npm install --cache <可写目录>`；清理残缺目录用 `node -e "fs.rmSync(path,{recursive:true,force:true,maxRetries:20})"`（PowerShell `Remove-Item` 对 node_modules 长路径/特殊文件会失败）；
 2. **npm 11 的 install-scripts 审批机制**：`esbuild` 的 postinstall 被 `allow-scripts` 拦截不执行，直接 build 会因缺平台二进制失败。解法：手动 `node node_modules/esbuild/install.js` 补跑（`@parcel/watcher` 仅 dev watch 用，build 不需要）；
 3. **EP 全量引入**：未做按需（unplugin-auto-import），主 chunk 约 1.06MB（gzip 349kB）。内网单机部署可接受；若后续要优化，加 unplugin 两个 devDep 即可，业务代码零改动。
+4. **Pipeline 粒度诚实边界**：后端 `document_tasks` 只暴露文档级状态（0/1/2/3/4），`ProcessingPipeline.vue` 的 8 个节点里"解析→清洗→分块→向量化→入库"在 status=1 时**整体高亮**而非逐个点亮——前端不伪造细分进度；要精确到步骤需后端在任务表加 `current_step` 字段，属 P1 增强。
+5. **vue-tsc 的跨函数属性窄化**：轮询函数内给 `ref` 赋值后，调用方读 `processing.value` 会被 CFA 窄化成非预期类型（踩到 `never`）。让轮询函数 `return` 终态值、调用方直接用返回值，不要读兄弟函数的 ref 副作用。
 
 ---
 
@@ -685,3 +687,4 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 > v1.0 2026-09-18 补充第六阶段稳定性保护、第十阶段 Ollama 原生流式协议，以及第九阶段异步 worker/缓存/assets 的收口结论。
 > v1.1 2026-09-18 新增第十四章：容器化部署与离线模型挂载——服务依赖门槛（健康检查）、三种模型来源方案取舍、bind mount 相对路径基准与 compose 插值边界（`deploy/.env` vs 项目 `.env`）、读写边界、显存竞争与 CPU Embedding 的取舍。
 > v1.2 2026-09-23 新增第十五章：前端架构与 UI/UX 重构——Vue 3 + Element Plus 选型、hash 路由约束、构建产物入库使 Docker 不含 Node 阶段、EP `@forward` 主题定制与 `$font-family` 陷阱、P0/P1 页面与诚实边界（dense-only）。
+> v1.3 2026-09-23 15.5 进度更新（知识库/文档页已交付）、15.6 补记两条：Pipeline 任务级粒度诚实边界（不伪造细分步骤进度）、vue-tsc 跨函数属性窄化陷阱。
