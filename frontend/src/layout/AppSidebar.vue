@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { ChatDotRound, Collection, DocumentCopy, Search } from "@element-plus/icons-vue";
+import { ChatDotRound, Collection, DocumentCopy, Grid, Search } from "@element-plus/icons-vue";
 
 const route = useRoute();
 // hash 路由下取一级路径作为菜单选中态
@@ -10,6 +10,7 @@ const active = computed(() => `/${(route.path.split("/")[1] ?? "knowledge-base")
 const menus = [
   { path: "/knowledge-base", title: "知识库", icon: Collection },
   { path: "/documents", title: "文档", icon: DocumentCopy },
+  { path: "/chunks", title: "分块查看", icon: Grid },
   { path: "/chat", title: "AI 助手", icon: ChatDotRound },
   { path: "/retrieval", title: "检索测试", icon: Search },
 ];

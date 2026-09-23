@@ -661,7 +661,7 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 | P0 ✅ | 文档（上传 + Pipeline 状态可视化 + 文档表） | 已有接口（status 轮询） |
 | P0 ✅ | AI 助手（SSE 流式 + Markdown + 引用来源抽屉） | 已有 `/api/v1/chat` |
 | P0 ✅ | 检索测试（Query → Retriever → 最终 Context） | 已有 `POST /api/v1/retrieval/test`（只检索不生成） |
-| P1 🟡 | Chunk 查看器（原文 ↔ Chunk ↔ Metadata） | 已新增 `GET /api/v1/documents/{file_id}/chunks`（v1.52）；页面交付中 |
+| P1 ✅ | Chunk 查看器（原文 ↔ Chunk ↔ Metadata） | 已交付 `GET /api/v1/documents/{file_id}/chunks`（v1.52）+ 前端「分块查看」页与三处入口（v1.53） |
 | P1/P2 | 工作台 / 模型中心 / 监控 / 历史会话 | 部分需后端新增能力 |
 
 **诚实边界**：当前检索是 dense-only 单路 ANN（无 BM25/hybrid/RRF/Rerank，见 PROJECT_PLAN 决策），检索测试页按真实能力展示 `Vector Search → 阈值过滤 → Top-K Context`，不做 hybrid/Rerank 假开关；设计方案中的这些能力标注为路线图。
@@ -694,3 +694,4 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 > v1.5 2026-09-23 15.5 进度更新（检索测试页，P0 四页全部交付）；补充 `retrieve_only` 与 `rag_answer` 的链路共用边界（不调 LLM、命中为空不触发重建/兜底话术——测试页要的是检索质量本身）。
 > v1.6 2026-09-23 第十五章收官：P0 四页生产产物替换 `app/static` 旧单页，生产路径端到端验收通过；部署侧注意宿主 uvicorn 启动需带 `--reload`（否则改后端代码/新增路由不生效，曾因漏 `--reload` 误判"新接口 405"）。
 > v1.7 2026-09-23 P1 Chunk 查看器后端：`GET /api/v1/documents/{file_id}/chunks`（分块+元数据+嵌入统计，heading_path 以 JSON 字符串列存储、解析失败兜底空列表）；`_build_trace` 顺带带出 file_id/chunk_index 支撑"定位分块"溯源（零额外查询）；补记运维坑：宿主机重启后 Docker Desktop 需手动拉起，旧版 compose 遗留的孤儿容器（attu/milvus-standalone/mongodb，停更于旧 etcd）会占 19530/9091 端口并进入崩溃重启，且端口冲突会让新 rag-milvus **网络附加失败**（NetworkSettings 为空、解析不到 etcd/minio、报 find no available rootcoord 并无限重启）——解法：停掉孤儿 milvus-standalone 释放端口后 `up -d --force-recreate milvus` 重建容器修复网络。
+> v1.8 2026-09-23 P1 Chunk 查看器前端：`ChunkList.vue` 交付（文档信息条/关键字+嵌入状态过滤/chunk 卡片元数据/line-clamp 展开/`?hl=` 高亮 + scrollIntoView），三处入口闭环（文档页「查看分块」、检索页与 Chat 来源抽屉「定位分块」）；15.5 的"Chunk 查看器的可追溯设计"由纯后端升级为前后端闭环。落地细节：① `?doc_id=` 直达时优先 `kb_id` 入参，缺失则遍历知识库列表找归属（Documents 页 KB 未就绪时点击会带出 `kb_id=undefined`，用 `?? ''` 兜底 + 遍历兜底双保险）；② `watch(() => route.query)` 监听同路由不同 doc 的跳转重载；③ 高亮与展开态分离——`hlIndex` 只负责"定位到的块强制展开+高亮边框"，`expandedIndexes` 管用户手动展开，避免跳转后用户操作被定位态覆盖。

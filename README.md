@@ -62,7 +62,7 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 
 启动后访问：
 
-- **前端页面**：<http://127.0.0.1:8000/> （知识库管理 / 文档上传 / RAG 问答）
+- **前端页面**：<http://127.0.0.1:8000/> （知识库管理 / 文档上传 / RAG 问答 / 检索测试 / 分块查看）
 - Swagger 文档：<http://127.0.0.1:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/health>
 
@@ -96,9 +96,9 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 
 ## 前端
 
-按《企业级RAG知识库 UI/UX 设计方案》实施：**Vue 3 + Element Plus + Vite** SPA（P0 四页已交付，P1/P2 待验收后排期），源码在 [frontend/](frontend/)（Design Tokens、Sidebar + Header 布局、hash 路由），构建产物同步到 `app/static/` 由后端同源托管，访问 <http://127.0.0.1:8000/>。
+按《企业级RAG知识库 UI/UX 设计方案》实施：**Vue 3 + Element Plus + Vite** SPA（P0 四页 + P1 Chunk 查看器已交付，P1/P2 其余待验收后排期），源码在 [frontend/](frontend/)（Design Tokens、Sidebar + Header 布局、hash 路由），构建产物同步到 `app/static/` 由后端同源托管，访问 <http://127.0.0.1:8000/>。
 
-> 当前进度（v1.51）：P0 四页全部交付并通过浏览器冒烟（知识库 / 文档 / AI 助手 / 检索测试），生产构建产物已由 `npm run build:static` 替换上线（访问 <http://127.0.0.1:8000/> 即新 SPA）；P1/P2（Chunk 查看器、工作台、监控等）待验收后排期。
+> 当前进度（v1.53）：P0 四页 + **P1 Chunk 查看器**全部交付并通过浏览器冒烟——「分块查看」页展示文档的分块与元数据（序号/类型/页码/token/嵌入状态/标题路径/vector_id），支持关键字与嵌入状态过滤；三处入口联动追溯：文档页「查看分块」、检索页与问答来源抽屉的「定位分块」（命中片段 → 高亮跳转到所属分块）。生产构建产物已由 `npm run build:static` 替换上线（访问 <http://127.0.0.1:8000/> 即新 SPA）；P1 其余（模型中心 / 来源预览）与 P2（工作台 / 监控 / 历史会话）待排期。
 
 前端本地开发（改 `frontend/` 源码后）：
 

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { retrievalApi, type RetrievalTestResult } from "@/api/modules";
 import { useKbStore } from "@/stores/kb";
 
 const kbStore = useKbStore();
+const router = useRouter();
 
 const query = ref("");
 const kbId = ref<number | null>(null);
@@ -87,7 +89,17 @@ onMounted(async () => {
               相似度 {{ hit.similarity.toFixed(4) }}
             </el-tag>
           </div>
-          <div class="hit-meta">页码：{{ hit.page ?? "未知" }}</div>
+          <div class="hit-meta">
+            <span>页码：{{ hit.page ?? "未知" }}</span>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click="router.push(`/chunks?doc_id=${hit.file_id}&hl=${hit.chunk_index}`)"
+            >
+              定位分块
+            </el-button>
+          </div>
           <div class="hit-content">{{ hit.content }}</div>
         </div>
       </div>
@@ -184,6 +196,9 @@ onMounted(async () => {
   }
 
   .hit-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     font-size: 12px;
     color: var(--rag-text-secondary);
     margin-bottom: 6px;

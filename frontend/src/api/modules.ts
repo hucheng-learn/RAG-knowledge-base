@@ -94,11 +94,44 @@ export const retrievalApi = {
   },
 };
 
+/* ---------- Chunk 查看器（P1：原文 ↔ Chunk ↔ Metadata 可追溯） ---------- */
+
+export interface ChunkItem {
+  chunk_index: number;
+  content: string;
+  page_number: number;
+  block_type: string | null;
+  heading_path: string[];
+  token_count: number | null;
+  /** 0待嵌入 1已嵌入 2失败 */
+  embedding_status: number;
+  vector_id: string | null;
+}
+
+export interface DocumentChunksResult {
+  file_id: string;
+  doc_name: string;
+  /** 0待处理 1处理中 2完成 3失败 4降级完成 */
+  status: number;
+  parser_name: string | null;
+  chunk_count: number;
+  embedded_count: number;
+  chunks: ChunkItem[];
+}
+
+export const chunksApi = {
+  byDoc(fileId: string): Promise<DocumentChunksResult> {
+    return get<DocumentChunksResult>(`/documents/${encodeURIComponent(fileId)}/chunks`);
+  },
+};
+
 /* ---------- 检索测试（P0：只检索不生成） ---------- */
 
 export interface RetrievalHit {
   idx: number;
   doc_name: string;
+  file_id: string;
+  chunk_index: number;
   content: string;
   page: number | null;
   similarity: number;

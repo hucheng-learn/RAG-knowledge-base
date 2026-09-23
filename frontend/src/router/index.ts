@@ -17,6 +17,12 @@ const routes = [
     meta: { title: "文档" },
   },
   {
+    path: "/chunks",
+    name: "chunk-list",
+    component: () => import("@/views/ChunkList.vue"),
+    meta: { title: "分块查看" },
+  },
+  {
     path: "/chat",
     name: "chat",
     component: () => import("@/views/Chat.vue"),

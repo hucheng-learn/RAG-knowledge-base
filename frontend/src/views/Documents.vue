@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import type { UploadFile } from "element-plus";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { documentApi, kbApi, type DocumentBrief, type DocumentStatus } from "@/api/modules";
@@ -10,6 +10,7 @@ import StatusTag from "@/components/StatusTag.vue";
 import ProcessingPipeline from "@/components/ProcessingPipeline.vue";
 
 const route = useRoute();
+const router = useRouter();
 const kbStore = useKbStore();
 
 const POLL_INTERVAL_MS = 1000;
@@ -221,8 +222,11 @@ onUnmounted(() => {
         <el-table-column label="上传时间" width="180">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" align="right">
+        <el-table-column label="操作" width="160" align="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="router.push('/chunks?doc_id=' + row.file_id + '&kb_id=' + (selectedKbId.value ?? ''))">
+              查看分块
+            </el-button>
             <el-button link type="danger" @click="removeDoc(row)">删除</el-button>
           </template>
         </el-table-column>

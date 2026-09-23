@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { RetrievalHit } from "@/api/modules";
 import { streamChat } from "@/api/chat";
@@ -18,6 +19,7 @@ interface ChatMessage {
 }
 
 const kbStore = useKbStore();
+const router = useRouter();
 
 const messages = ref<ChatMessage[]>([]);
 const input = ref("");
@@ -194,7 +196,17 @@ onMounted(async () => {
           <span class="ref-name">[来源{{ hit.idx }}] {{ hit.doc_name }}</span>
           <el-tag size="small" type="info">相似度 {{ hit.similarity.toFixed(4) }}</el-tag>
         </div>
-        <div class="ref-meta">页码：{{ hit.page ?? "未知" }}</div>
+        <div class="ref-meta">
+          <span>页码：{{ hit.page ?? "未知" }}</span>
+          <el-button
+            link
+            type="primary"
+            size="small"
+            @click="router.push(`/chunks?doc_id=${hit.file_id}&hl=${hit.chunk_index}`)"
+          >
+            定位分块
+          </el-button>
+        </div>
         <div class="ref-content">{{ hit.content }}</div>
       </div>
       <div v-if="(drawerMsg?.refs ?? []).length === 0" class="ref-empty">本轮没有引用来源</div>
@@ -368,6 +380,9 @@ onMounted(async () => {
   }
 
   .ref-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     font-size: 12px;
     color: var(--rag-text-secondary);
     margin-bottom: 6px;
