@@ -12,6 +12,11 @@ venv/
 uploads/
 logs/
 
+# 前端（frontend/ 源码入库；node_modules 与 dist 不入库，
+# 构建产物由 scripts/sync-static.mjs 同步到 app/static 后提交）
+frontend/node_modules/
+frontend/dist/
+
 # 临时调试/验证产物（AI 或人工临时脚本、生成物，不入库）
 .test_files/
 .tmp/

@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.45 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-19
+> 当前版本：v1.46 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
 
 ---
 
@@ -44,7 +44,7 @@
 | Embedding | **bge-m3** | 本地 sentence-transformers 加载，1024 维；|
 | 大模型 | 当前 DeepSeek 官方 API；目标 Ollama 本地模型 | 当前用于快速验证，后续切换本地模型完成全链路私有化 |
 | ORM | SQLAlchemy 2.x | 配合 MySQL |
-| 前端 | 单页 HTML + 原生 JS | FastAPI 静态同源托管（`app/static/`），fetch + ReadableStream 消费 SSE，无构建工具 |
+| 前端 | Vue 3 + Element Plus + Vite（TS/SCSS） | `frontend/` 源码工程；构建产物同步到 `app/static/`，FastAPI 同源托管（hash 路由），运行时零外部 CDN 依赖 |
 | 配置 | pydantic-settings + .env | 禁止硬编码 |
 | 部署 | Docker / docker-compose | 当前目标为客户本地部署；MinerU、后端、Milvus、MySQL、Ollama 逐步纳入本地部署 |
 
@@ -77,7 +77,7 @@
 | `service` | 业务逻辑层：文档解析、文本清洗、分块、向量入库、检索问答全部在此 | — |
 | `models` | Pydantic 请求/响应模型、MySQL ORM 表结构定义 | — |
 | `utils` | 通用工具：文本清洗工具、全局日志、异常处理、文件工具 | — |
-| `static` | 前端单页（`index.html`，三个 Tab），由 FastAPI 同源托管在 `/` | 不写后端逻辑，只调 REST/SSE |
+| `static` | 前端构建产物（`index.html` + `assets/`），由 FastAPI 同源托管在 `/` | 不写后端逻辑，只调 REST/SSE；源码在 `frontend/`，禁止手改构建产物 |
 
 ---
 
@@ -121,8 +121,9 @@ project_root/
 │   │       ├── knowledge_base.py
 │   │       ├── document.py
 │   │       └── chunk.py
-│   ├── static/                     # 前端单页（托管在 / 根路径）
-│   │   └── index.html             # 三个 Tab：知识库管理 / 文档上传 / RAG 问答
+│   ├── static/                     # 前端构建产物（FastAPI 托管 / 根路径，hash 路由）
+│   │   ├── index.html             # Vue SPA 入口（frontend/ 构建同步而来）
+│   │   └── assets/                # JS/CSS 构建产物（npm run build:static 生成，随 git 提交）
 │   └── utils/
 │       ├── __init__.py
 │       ├── clean_text.py          # 文本清洗（可配置开关）
@@ -130,6 +131,10 @@ project_root/
 │       ├── response.py             # 统一返回体 {code, msg, data}
 │       ├── logger.py              # 全局日志（记录入参/文件名/异常堆栈）
 │       └── file_utils.py          # 文件校验、uuid 重命名、保存
+├── frontend/                      # 前端源码工程（Vue 3 + TS + Vite，UI/UX 设计方案落地）
+│   ├── src/                       # views / layout / components / api / stores / styles
+│   ├── scripts/sync-static.mjs    # 构建后把 dist 同步到 app/static
+│   └── vite.config.ts
 ├── deploy/
 │   ├── docker-compose.yml         # 唯一入口：全栈一键启动（MySQL/Milvus/MinerU/Ollama/后端），也可按服务名只起依赖
 │   └── mineru/                    # MinerU 镜像构建与部署说明
@@ -205,13 +210,14 @@ project_root/
 | 第六阶段 | 工程稳定性优化 | ⑧ | ✅ 已完成 |
 | 第十阶段 | Ollama 本地 LLM 与全链路私有化 | ⑨ | ✅ 已完成 |
 | 第七阶段 | 容器部署（Dockerfile + docker-compose） | ⑩ | ✅ 已完成 |
+| 第十二阶段 | 前端 UI/UX 重构（Vue 3 + Element Plus，按设计方案落地） | ⑪ | 🟡 进行中 |
 | 第十一阶段 | pdfplumber / MinerU 对照实验与面试报告 | 延期 | ⏸ 延期，不纳入本轮 |
 
 > 状态标记：⬜ 未开始 ｜ 🟡 进行中 ｜ ✅ 已完成
 
 ### 8.0.1 接续指引（新会话/新 Agent 从这里开始）
 
-- **当前进度**：第一~十阶段（不含第十一阶段）已完成；第十一阶段延期；
+- **当前进度**：第一~十阶段（不含第十一阶段）已完成；第十一阶段延期；**第十二阶段（前端 UI/UX 重构）进行中**——按用户提供的《企业级RAG知识库 UI/UX 设计方案》用 Vue 3 + Element Plus 重做前端，P0 四页（知识库 / 文档 / AI 助手 / 检索测试）小步交付中；
 - **环境**：Python 用 conda 环境 `rag_kb`；MySQL 本机常驻（容器版在宿主 3307）；Milvus `docker compose -f deploy/docker-compose.yml up -d milvus`（容器 `rag-milvus`，宿主 19530，会带起 etcd/minio）；MinerU `docker compose -f deploy/docker-compose.yml up -d mineru` 或一把起全栈（`up -d`，`127.0.0.1:8001`，**容器启动后首次解析需等 vLLM warmup 约 2~3 分钟**）；后端 `uvicorn app.main:app --reload`（8000，别和容器 backend 同时起）；
 - **代码地图**：解析器 `app/service/parser/`（新增格式改 `__init__.py` 注册表）；分块 `chunk_service.py`；入库与降级 `document_service.py`；检索问答 `rag_service.py`；向量库 `vector_service.py`；配置 `app/config/settings.py` + `.env`；表结构 `sql/schema.sql`（改表后跑 `scripts/verify_schema.py`）；
 - **必读约定**：`AGENTS.md`——小步提交（只提交 `dev`）、改完必回写文档、下载前说明是否需要代理；
@@ -319,6 +325,15 @@ project_root/
 - 记录文本完整率、表格结构正确率、OCR 效果、Recall@K、MRR、问答准确率、页码引用准确率、解析耗时、资源占用、失败率和降级率；
 - 不预设 MinerU 必然更好，以真实数据决定默认解析器，并形成可用于面试说明技术选型的实验报告。
 
+### 8.12 第十二阶段：前端 UI/UX 重构（Vue 3 + Element Plus）（🟡 进行中，2026-09-23 起）
+
+> 设计基线：用户提供的《企业级RAG知识库 UI/UX 设计方案》（V1.0）。产品定位"企业知识库 + RAG 检索 + AI 知识助手"统一工作空间；视觉基调 Enterprise / Minimal / Professional；核心体验：**文档可见、处理可见、Chunk 可见、检索可测、来源可追溯**。Design Tokens 与架构决策详见 TECH_DESIGN §15。
+
+- 技术栈：Vue 3 + TypeScript + Vite + Element Plus + SCSS + Pinia + Axios；hash 路由（StaticFiles 无 history 模式 404 回退能力，见 TECH_DESIGN §15.2）；
+- 页面范围（P0 先行，P1/P2 待验收后排期）：布局骨架（Sidebar 232px + Header 56px）→ 知识库（表格模式）→ 文档（上传 + Pipeline 状态可视化 + 文档表）→ AI 助手（SSE 流式 + Markdown + 引用来源）→ 检索测试（后端补"只检索不生成"接口）；
+- 构建与部署：`frontend/` 源码入库；`npm run build:static` 构建并将 dist **同步覆盖** `app/static/`（清空旧单页 index.html），产物随 git 提交——**Docker 镜像构建不需要 Node**；npm 依赖走 npmmirror 镜像（国内直连，免代理）；
+- 提交拆分：① 脚手架 + Design Tokens + 布局 + 路由占位（本提交）→ ② 知识库页 → ③ 文档页 → ④ Chat 页 → ⑤ 检索测试（含后端接口）→ ⑥ 构建产物替换上线 + 端到端验收 + 文档回写。
+
 ---
 
 ## 9. 每阶段交付物模板（输出固定格式）
@@ -387,7 +402,8 @@ project_root/
 | 2026-09-18 | v1.42 | 容器内 Embedding 接到 GPU：`deploy/docker-compose.yml` 的 backend 服务新增 GPU 设备预留（`driver: nvidia` / `device_ids: ["0"]`），`EMBEDDING_DEVICE` 默认值由 `cpu` 改为 `cuda`（可在 `deploy/.env` 覆盖回 cpu）；同步修正 `deploy/README.md`「资源与已知限制」、`README.md`「容器内的推理设备」、`TECH_DESIGN.md` 9.4/14.5、`.env.example` 注释中"镜像内是 PyPI 默认 torch（CPU 版）、RTX 5080 需换 torch 底座"的过时结论 | 排查"显存好像没用"时实测发现：镜像内其实是 `torch 2.14.0+cu130`，同镜像加 `--gpus all` 即 `cuda.is_available()=True` 并识别 RTX 5080 Laptop（capability 12.0），原文结论已不成立；真正的瓶颈是 compose 没给 backend 预留设备，而 `BgeEmbeddingService` 对 cuda 不可用只打 WARNING 回退 CPU、不报错，于是长期"能跑但跑在 CPU"——日志里一次 12 字提问 `embedding_ms=13121.6`。对照实测（预热后）：CPU 单条 447ms / 512 条 15.9s，GPU 单条 12.8ms / 512 条 1.42s，约 11~35 倍；改造后容器内预热单次查询 `embedding_ms≈72ms`、端到端 1.4s，显存 5.6GB(Ollama) → 8.05GB(+bge-m3 2.2GB)；顺带确认 MinerU 空闲占 0 显存属正常（VLM 权重首次解析 PDF/图片才 warmup），宿主 `nvidia-smi` 进程列表为空是 WDDM 假象、容器内可见 `/llama-server` |
 | 2026-09-19 | v1.43 | 统一 Compose 时区：`backend` 与 `mysql` 新增 `TZ: ${TZ:-Asia/Shanghai}`（可用 `deploy/.env` 或 shell 环境变量覆盖），同步 `deploy/README.md`（端口覆盖清单加 `TZ`，新增两条 FAQ：时区偏移 8 小时、容器日志与宿主 `logs/` 的区别）、`.env` / `.env.example` 的容器部署注释块、`TECH_DESIGN.md` §7；实测重建后 `docker exec rag-backend date` 与 `docker exec rag-mysql mysql -e "select @@system_time_zone, now()"` 均为 CST、日志行时间与宿主 `Get-Date` 一致 | 排查"日志改在容器里看"时发现容器默认 UTC。时区必须**成对设置**：`created_at` / `next_run_at` 默认值由 MySQL 侧 `DEFAULT CURRENT_TIMESTAMP`（`time_zone=SYSTEM`，跟随容器时区）生成，而 `updated_at` / `next_run_at` 与日志 `%(asctime)s` 由 backend 进程本地时间（`datetime.now()` / `time.localtime`）生成——只改 backend 会让同表内两种时间基准差 8 小时（等于把原来的"都偏 UTC"换成"同表内不一致"，更糟）。TZ 只影响新写入，已按 UTC 落库的历史行不回改 |
 
-| 2026-09-19 | v1.45 | MinerU `tier` 默认值 `standard` → `advanced`（settings.py 默认、`.env` / `.env.example`、`deploy/docker-compose.yml` backend 新增 `MINERU_TIER` 环境变量透传，可用 `deploy/.env` 覆盖）；`deploy/mineru/README.md`、`TECH_DESIGN.md` 13.2/13.4 同步 | 用户实测官方 API 能解析脑图而本地不行；对照实验：本地 `standard`（含强制 `ocr_mode=ocr`）把整页判成单 image 区域、零文本块，`advanced` 的 VLM 能把脑图转 mermaid 结构文本（节点文字完整）——差异根因是 tier 不是 OCR 开关；advanced 代价是 VLM 逐页推理更慢，故保留配置可回退 + v1.44 降级兜底 |
 | 2026-09-19 | v1.44 | 解析降级条件补强：`FallbackDocumentParser` 在主解析器「成功但 `page_texts` 全空」时也降级到备用解析器（原逻辑只在抛异常时降级）；`MinerUParser` 新增 `_strip_base64_images`，剥离 markdown 内嵌的 `data:image/...;base64` 载荷（替换为 `[image]` 占位），避免几十万字符噪声流入 `documents.char_count` / 预览 / 解析缓存；`TECH_DESIGN.md` 13.4 同步 | 真实踩坑：图形化排版 PDF（脑图）被 MinerU 整页识别为一张大图，接口 200 但零文本块、markdown 全 base64 图 → 旧逻辑不降级 → 产出 0 分块的「成功」文档（前端显示 0 块、永远检索不到）；pdfplumber 实测同文件有 3728 字符文本层，降级后可正常分块 |
+| 2026-09-19 | v1.45 | MinerU `tier` 默认值 `standard` → `advanced`（settings.py 默认、`.env` / `.env.example`、`deploy/docker-compose.yml` backend 新增 `MINERU_TIER` 环境变量透传，可用 `deploy/.env` 覆盖）；`deploy/mineru/README.md`、`TECH_DESIGN.md` 13.2/13.4 同步 | 用户实测官方 API 能解析脑图而本地不行；对照实验：本地 `standard`（含强制 `ocr_mode=ocr`）把整页判成单 image 区域、零文本块，`advanced` 的 VLM 能把脑图转 mermaid 结构文本（节点文字完整）——差异根因是 tier 不是 OCR 开关；advanced 代价是 VLM 逐页推理更慢，故保留配置可回退 + v1.44 降级兜底 |
+| 2026-09-23 | v1.46 | 第十二阶段启动：新增 `frontend/` 前端工程（Vue 3 + TS + Vite + Element Plus + SCSS + Pinia + Axios），落地 Design Tokens（方案 3.1~3.3）、Element Plus 主题定制（主色 #3370FF）、Sidebar 232px + Header 56px 布局、hash 路由、axios 统一信封解包；构建产物由 `frontend/scripts/sync-static.mjs` 同步覆盖 `app/static/`（Docker 镜像不依赖 Node，产物随 git 提交）；npm 依赖走 npmmirror 镜像直连 | 按用户提供的 UI/UX 设计方案，将"无构建单页 HTML"升级为企业级 SPA；本提交只交付脚手架+布局+路由占位（四个 P0 页面为占位态），旧 `index.html` 暂保留至页面全量交付后一次性替换 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
