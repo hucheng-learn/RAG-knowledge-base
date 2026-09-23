@@ -77,6 +77,7 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 | GET    | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情                                   |
 | DELETE | `/api/v1/kbs/{id}`                 | 删除知识库（级联清理全部文档）                              |
 | POST   | `/api/v1/chat`                     | RAG 问答（SSE 流式：start 溯源 / delta 回答 / done 结束） |
+| POST   | `/api/v1/retrieval/test`           | 检索测试（只检索不生成：命中 chunk + 相似度 + 各阶段耗时） |
 
 ## 目录结构
 
@@ -84,7 +85,8 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 
 | 路径         | 说明                                                                                      |
 | ---------- | --------------------------------------------------------------------------------------- |
-| `app/`     | 后端代码（config / routers / service / models / utils / static）                              |
+| `app/`     | 后端代码（config / routers / service / models / utils / static）                             |
+| `frontend/` | 前端源码工程（Vue 3 + TS + Vite + Element Plus；`npm run build:static` 产出到 `app/static/`） |
 | `docs/`    | `PROJECT_PLAN.md`（计划与进度，唯一事实来源）、`TECH_DESIGN.md`（技术方案与面试要点）                             |
 | `deploy/`  | `docker-compose.yml`（唯一入口：全栈一键启动 + 按服务名单独启动依赖，含本地模型挂载）、`mineru/`（MinerU 镜像构建与部署说明） |
 | `sql/`     | `schema.sql`——三张表建表 SQL（权威版本）                                                           |
@@ -93,11 +95,20 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 
 ## 前端
 
-极简单页已实现：单文件 `app/static/index.html`（原生 HTML/JS，无构建），三个 Tab：
-知识库管理（新建/列表/删除，**点「文档」查看库内文档列表并支持单文档删除**）、
-文档上传（选库上传显示解析结果，**同库同名默认拒绝，可勾选处理成功后替换旧版本**）、
-RAG 问答（SSE 流式回答 + 溯源卡片）。
-由后端同源托管，启动后直接访问 <http://127.0.0.1:8000/> 即可。
+按《企业级RAG知识库 UI/UX 设计方案》实施：**Vue 3 + Element Plus + Vite** SPA（P0 四页已交付，P1/P2 待验收后排期），源码在 [frontend/](frontend/)（Design Tokens、Sidebar + Header 布局、hash 路由），构建产物同步到 `app/static/` 由后端同源托管，访问 <http://127.0.0.1:8000/>。
+
+> 当前进度（v1.51）：P0 四页全部交付并通过浏览器冒烟（知识库 / 文档 / AI 助手 / 检索测试），生产构建产物已由 `npm run build:static` 替换上线（访问 <http://127.0.0.1:8000/> 即新 SPA）；P1/P2（Chunk 查看器、工作台、监控等）待验收后排期。
+
+前端本地开发（改 `frontend/` 源码后）：
+
+```bash
+cd frontend
+npm install                 # 依赖走 npmmirror 镜像，国内直连免代理
+npm run dev                 # vite dev server（5173，/api 代理到 127.0.0.1:8000）
+npm run build:static        # 生产构建并把 dist 覆盖同步到 app/static（产物提交 git）
+```
+
+约定：`app/static` 下的构建产物**禁止手改**；Docker 镜像不装 Node，直接 `COPY app ./app` 使用已提交产物；hash 路由无需服务端 404 回退配置。详见 `docs/TECH_DESIGN.md` §15。
 
 ## 支持的文件格式与解析器
 

@@ -170,6 +170,57 @@ async def rag_answer(
     }
 
 
+async def retrieve_only(
+    query: str,
+    kb_id: Optional[int] = None,
+    top_k: int = 4,
+) -> dict:
+    """只检索不生成：供检索测试与调参（对应 PROJECT_PLAN 12.0.4 检索测试页）。
+
+    与 rag_answer 共用 embedding → 召回 → 阈值过滤 → 溯源链路，
+    但**不调 LLM**：命中为空时返回空 hits，不触发向量重建、不生成兜底话术——
+    测试页要的是"检索本身的质量"，不是问答兜底。
+
+    Returns:
+        {query, kb_id, top_k, hits, embedding_ms, retrieval_ms, total_ms}
+    """
+    if len(query) > settings.rag_max_query_chars:
+        raise BizException(f"问题长度超过限制（最多 {settings.rag_max_query_chars} 个字符）")
+    query_tokens = estimate_token_count(query)
+    if query_tokens > settings.rag_max_query_tokens:
+        raise BizException(f"问题 token 长度超过限制（估算最多 {settings.rag_max_query_tokens}）")
+
+    started = perf_counter()
+    svc = get_embedding_service()
+    qv = await run_in_threadpool(svc.embed_query, query)
+    embedding_ms = (perf_counter() - started) * 1000
+    logger.info("检索测试: embedding_ms=%.1f query_chars=%d", embedding_ms, len(query))
+
+    await run_in_threadpool(ensure_collection)
+    doc_ids = None
+    if kb_id is not None:
+        doc_ids = await run_in_threadpool(_get_kb_doc_ids, kb_id)
+    hits = await run_in_threadpool(milvus_search, qv, top_k, doc_ids)
+    retrieval_ms = (perf_counter() - started) * 1000
+    # 与 rag_answer 一致的阈值过滤：低于 rag_min_similarity 视为无相关
+    hits = [h for h in hits if h["distance"] >= settings.rag_min_similarity]
+    trace = await run_in_threadpool(_build_trace, hits)
+    total_ms = (perf_counter() - started) * 1000
+    logger.info(
+        "检索测试: retrieval_ms=%.1f hits=%d top_k=%d kb_id=%s",
+        retrieval_ms, len(trace), top_k, kb_id,
+    )
+    return {
+        "query": query,
+        "kb_id": kb_id,
+        "top_k": top_k,
+        "hits": trace,
+        "embedding_ms": round(embedding_ms, 1),
+        "retrieval_ms": round(retrieval_ms, 1),
+        "total_ms": round(total_ms, 1),
+    }
+
+
 def _get_kb_doc_ids(kb_id: int) -> list:
     """取某知识库下的所有文档 id，用于检索过滤。"""
     session = get_session()

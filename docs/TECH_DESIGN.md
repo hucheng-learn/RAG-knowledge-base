@@ -616,6 +616,66 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 
 ---
 
+## 15. 前端架构与 UI/UX 重构（第十二阶段）
+
+### 15.1 技术选型：从"无构建单页 HTML"到 Vue 3 + Element Plus
+
+原前端是 `app/static/index.html` 单文件（原生 JS，约 480 行），三个 Tab 硬编码。UI/UX 设计方案（V1.0）要求 Sidebar 信息架构、Chunk 查看器、Pipeline 可视化、引用抽屉等组件体系，继续用原生 JS 堆会快速失控，因此按方案第 8 节升级为 Vue 3 + TypeScript + Vite + Element Plus + SCSS + Pinia + Axios。
+
+**托管方式不变**：构建产物仍由 FastAPI `StaticFiles(html=True)` 同源托管在 `/`，不引入 Nginx/Node 运行时——客户本地部署形态零变化。
+
+### 15.2 路由：为什么用 hash 模式
+
+`StaticFiles(html=True)` 只把目录根的 `index.html` 映射到 `/`，**没有 history 模式的 404 回退**：SPA 若用 `createWebHistory()`，用户直接访问 `/#/chat` 之外的深链接（如刷新 `/documents`）会拿到 404。hash 路由（`createWebHashHistory()`）把路由状态放在 `#` 后，服务端只认 `/` 一个入口，零配置可用；代价是 URL 带 `#`，对内网工具可接受。若未来上 Nginx，加一条 `try_files ... /index.html` 即可切回 history 模式（路由表已按标准 path 定义，切换只改一行）。
+
+### 15.3 构建与同步管线（Docker 不依赖 Node 的关键决策）
+
+```
+frontend/（源码，入库）
+  └─ npm run build:static
+       ├─ vite build          → frontend/dist（base './' 相对路径产物）
+       └─ scripts/sync-static.mjs → 清空并覆盖 app/static/（构建产物随 git 提交）
+```
+
+| 决策 | 理由 |
+|---|---|
+| 产物提交进 git，Dockerfile **不加 Node 阶段** | 客户镜像构建环境不要求Node/npm 网络；`COPY app ./app` 直接带上前端 |
+| `base: './'` | 产物不假设挂载前缀，`/` 或子路径都能跑 |
+| sync 脚本先清空目标目录 | 旧单页 index.html 必须被替换掉，避免新旧入口并存误导 |
+| `.gitignore` 忽略 `frontend/node_modules` 与 `frontend/dist` | 源码与最终产物入库，中间产物不入库 |
+
+npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfile pip 用清华源同一策略：国内直连、免代理、离线可用（装完即断网也能构建）。
+
+### 15.4 Design Tokens 与 Element Plus 主题定制
+
+- Tokens（方案 3.1~3.3）落地在 `frontend/src/styles/tokens.scss`：`--rag-*` CSS 变量（主色 #3370FF、浅灰底 #F5F6F7、白表面、细边框 #DEE0E3、四档间距、Sidebar 232px/Header 56px/内容宽 1360px）；
+- EP 主题用**官方 SCSS `@forward ... with` 覆盖 `$colors`**（主色/成功/警告/危险对齐 Tokens），而不是散装 CSS 变量——一次性生成全部派生色阶（light-3/5/7/8/9、dark-2 等），hover/active 态自动成套；
+- **踩坑：`$font-family` 不能用 `@forward` 覆盖**——EP 内部它是 map 结构（含各组件字体栈），传字符串会炸 `assertMap`。字体改为覆盖 CSS 变量 `--el-font-family` + body 基础样式，双保险；
+- **离线红线**：不引在线字体/图标 CDN，字体栈 `Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei"`（系统没有 Inter 时自动回退，视觉损失最小）。
+
+### 15.5 页面与信息架构（P0 → P1/P2）
+
+| 优先级 | 页面 | 后端依赖 |
+|---|---|---|
+| P0 ✅ | 布局骨架 + 知识库（表格模式） | 已有接口 |
+| P0 ✅ | 文档（上传 + Pipeline 状态可视化 + 文档表） | 已有接口（status 轮询） |
+| P0 ✅ | AI 助手（SSE 流式 + Markdown + 引用来源抽屉） | 已有 `/api/v1/chat` |
+| P0 ✅ | 检索测试（Query → Retriever → 最终 Context） | 已有 `POST /api/v1/retrieval/test`（只检索不生成） |
+| P1 | Chunk 查看器（原文 ↔ Chunk ↔ Metadata） | 需新增按文档查 chunk 接口 |
+| P1/P2 | 工作台 / 模型中心 / 监控 / 历史会话 | 部分需后端新增能力 |
+
+**诚实边界**：当前检索是 dense-only 单路 ANN（无 BM25/hybrid/RRF/Rerank，见 PROJECT_PLAN 决策），检索测试页按真实能力展示 `Vector Search → 阈值过滤 → Top-K Context`，不做 hybrid/Rerank 假开关；设计方案中的这些能力标注为路线图。
+
+### 15.6 前端侧踩坑记录
+
+1. **npm 缓存目录沙箱/权限**：默认 cache 在 `D:\program_data\npm`（Agent 沙箱不可写）报 EPERM，且中断的安装会留下残缺 `node_modules`（二次安装报 `ENOTEMPTY: rmdir minimatch/dist/commonjs`）。解法：`npm install --cache <可写目录>`；清理残缺目录用 `node -e "fs.rmSync(path,{recursive:true,force:true,maxRetries:20})"`（PowerShell `Remove-Item` 对 node_modules 长路径/特殊文件会失败）；
+2. **npm 11 的 install-scripts 审批机制**：`esbuild` 的 postinstall 被 `allow-scripts` 拦截不执行，直接 build 会因缺平台二进制失败。解法：手动 `node node_modules/esbuild/install.js` 补跑（`@parcel/watcher` 仅 dev watch 用，build 不需要）；
+3. **EP 全量引入**：未做按需（unplugin-auto-import），主 chunk 约 1.06MB（gzip 349kB）。内网单机部署可接受；若后续要优化，加 unplugin 两个 devDep 即可，业务代码零改动。
+4. **Pipeline 粒度诚实边界**：后端 `document_tasks` 只暴露文档级状态（0/1/2/3/4），`ProcessingPipeline.vue` 的 8 个节点里"解析→清洗→分块→向量化→入库"在 status=1 时**整体高亮**而非逐个点亮——前端不伪造细分进度；要精确到步骤需后端在任务表加 `current_step` 字段，属 P1 增强。
+5. **vue-tsc 的跨函数属性窄化**：轮询函数内给 `ref` 赋值后，调用方读 `processing.value` 会被 CFA 窄化成非预期类型（踩到 `never`）。让轮询函数 `return` 终态值、调用方直接用返回值，不要读兄弟函数的 ref 副作用。
+
+---
+
 > 更新记录：v0.2 2026-08-21 覆盖第一、二阶段技术方案与面试要点；移除运维/环境层面的琐碎问题记录（本文档只沉淀有讲解价值的代码设计与面试要点）。
 > v0.3 2026-08-27 新增第三阶段：Embedding 抽象、Milvus collection 设计、双写一致性落地、环境工程要点。
 > v0.4 2026-08-28 新增第四阶段：知识库接口设计、删除级联顺序、批量删除不触发 ORM 级联、Milvus 删除异步语义。
@@ -626,3 +686,8 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 > v0.9 2026-09-18 新增 2.4 同名文件冲突策略决策：由「一律拒绝」改为「显式覆盖」（`overwrite` 参数 + 前端确认），含四种策略对比、先写后删的顺序约束、doc_count 与审计影响。
 > v1.0 2026-09-18 补充第六阶段稳定性保护、第十阶段 Ollama 原生流式协议，以及第九阶段异步 worker/缓存/assets 的收口结论。
 > v1.1 2026-09-18 新增第十四章：容器化部署与离线模型挂载——服务依赖门槛（健康检查）、三种模型来源方案取舍、bind mount 相对路径基准与 compose 插值边界（`deploy/.env` vs 项目 `.env`）、读写边界、显存竞争与 CPU Embedding 的取舍。
+> v1.2 2026-09-23 新增第十五章：前端架构与 UI/UX 重构——Vue 3 + Element Plus 选型、hash 路由约束、构建产物入库使 Docker 不含 Node 阶段、EP `@forward` 主题定制与 `$font-family` 陷阱、P0/P1 页面与诚实边界（dense-only）。
+> v1.3 2026-09-23 15.5 进度更新（知识库/文档页已交付）、15.6 补记两条：Pipeline 任务级粒度诚实边界（不伪造细分步骤进度）、vue-tsc 跨函数属性窄化陷阱。
+> v1.4 2026-09-23 15.5 进度更新（Chat 页已交付）；15.6 补记：SSE 客户端必须用原生 fetch+ReadableStream（axios 的 responseType:'stream' 在浏览器端不可用）、中断问答用 AbortController 且必须在 catch 里用 signal.aborted 区分"用户主动停止"与真实错误（前者保留部分回答、后者进错误气泡）。
+> v1.5 2026-09-23 15.5 进度更新（检索测试页，P0 四页全部交付）；补充 `retrieve_only` 与 `rag_answer` 的链路共用边界（不调 LLM、命中为空不触发重建/兜底话术——测试页要的是检索质量本身）。
+> v1.6 2026-09-23 第十五章收官：P0 四页生产产物替换 `app/static` 旧单页，生产路径端到端验收通过；部署侧注意宿主 uvicorn 启动需带 `--reload`（否则改后端代码/新增路由不生效，曾因漏 `--reload` 误判"新接口 405"）。

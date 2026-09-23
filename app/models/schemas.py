@@ -105,3 +105,33 @@ class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="用户问题")
     kb_id: Optional[int] = Field(None, description="可选，限定在指定知识库内检索")
     top_k: int = Field(4, ge=1, le=10, description="召回条数（1-10）")
+
+
+class RetrievalTestRequest(BaseModel):
+    """检索测试请求体（只检索不生成，用于调参与效果验证）。"""
+
+    query: str = Field(..., min_length=1, max_length=2000, description="测试问题")
+    kb_id: Optional[int] = Field(None, description="可选，限定在指定知识库内检索")
+    top_k: int = Field(4, ge=1, le=10, description="召回条数（1-10）")
+
+
+class RetrievalHit(BaseModel):
+    """检索命中片段（MySQL 溯源，含相似度）。"""
+
+    idx: int = Field(..., description="来源编号（1 起，对应问答提示词里的 [来源N]）")
+    doc_name: str = Field(..., description="文档名")
+    content: str = Field(..., description="命中的 chunk 原文")
+    page: Optional[int] = Field(None, description="来源页码")
+    similarity: float = Field(..., description="余弦相似度（已过 rag_min_similarity 阈值）")
+
+
+class RetrievalTestResponse(BaseModel):
+    """检索测试结果（含各阶段耗时，便于定位瓶颈）。"""
+
+    query: str
+    kb_id: Optional[int] = None
+    top_k: int
+    hits: List[RetrievalHit] = Field(default_factory=list)
+    embedding_ms: float = Field(0, description="问题向量化耗时（ms）")
+    retrieval_ms: float = Field(0, description="向量化+召回+溯源总耗时（ms）")
+    total_ms: float = Field(0, description="接口端到端耗时（ms）")

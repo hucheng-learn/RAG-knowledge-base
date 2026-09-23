@@ -1,0 +1,31 @@
+/* Element Plus 主题定制：用官方 @forward 变量覆盖，把主色/语义色对齐 Design Tokens。
+ * 不用默认后台风（设计方案 2 竞品借鉴结论）。
+ * 注意：本文件替代 `element-plus/dist/index.css` 全量引入。 */
+@forward "element-plus/theme-chalk/src/common/var.scss" with (
+  $colors: (
+    "primary": (
+      "base": #3370ff,
+    ),
+    "success": (
+      "base": #22a06b,
+    ),
+    "warning": (
+      "base": #cf8b00,
+    ),
+    "danger": (
+      "base": #de350b,
+    ),
+  ),
+);
+
+@use "element-plus/theme-chalk/src/index.scss" as *;
+
+/* 字体走 CSS 变量覆盖（$font-family 在 EP 内部是 map 结构，@forward 覆盖会炸） */
+:root {
+  --el-font-family: 'Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif';
+}
+
+/* 表格/菜单等细节向"克制的企业风"收敛 */
+.el-table th.el-table__cell {
+  font-weight: 600;
+}

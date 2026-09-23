@@ -25,7 +25,7 @@ from starlette.responses import Response
 
 from app.config.settings import get_settings
 from app.models.orm import init_db
-from app.routers import chat, document, knowledge_base
+from app.routers import chat, document, knowledge_base, retrieval
 from app.utils.exceptions import register_exception_handlers
 from app.utils.logger import get_logger, setup_logging
 from app.utils.response import json_fail, success
@@ -77,6 +77,7 @@ register_exception_handlers(app)
 app.include_router(document.router)
 app.include_router(knowledge_base.router)
 app.include_router(chat.router)
+app.include_router(retrieval.router)
 
 
 @app.middleware("http")
