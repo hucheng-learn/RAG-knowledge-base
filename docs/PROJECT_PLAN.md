@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.50 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
+> 当前版本：v1.51 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
 
 ---
 
@@ -210,14 +210,14 @@ project_root/
 | 第六阶段 | 工程稳定性优化 | ⑧ | ✅ 已完成 |
 | 第十阶段 | Ollama 本地 LLM 与全链路私有化 | ⑨ | ✅ 已完成 |
 | 第七阶段 | 容器部署（Dockerfile + docker-compose） | ⑩ | ✅ 已完成 |
-| 第十二阶段 | 前端 UI/UX 重构（Vue 3 + Element Plus，按设计方案落地） | ⑪ | 🟡 进行中 |
+| 第十二阶段 | 前端 UI/UX 重构（Vue 3 + Element Plus，按设计方案落地；P0 四页已完成，P1/P2 待排期） | ⑪ | 🟡 进行中 |
 | 第十一阶段 | pdfplumber / MinerU 对照实验与面试报告 | 延期 | ⏸ 延期，不纳入本轮 |
 
 > 状态标记：⬜ 未开始 ｜ 🟡 进行中 ｜ ✅ 已完成
 
 ### 8.0.1 接续指引（新会话/新 Agent 从这里开始）
 
-- **当前进度**：第一~十阶段（不含第十一阶段）已完成；第十一阶段延期；**第十二阶段（前端 UI/UX 重构）进行中**——按用户提供的《企业级RAG知识库 UI/UX 设计方案》用 Vue 3 + Element Plus 重做前端，P0 四页（知识库 / 文档 / AI 助手 / 检索测试）小步交付中；
+- **当前进度**：第一~十阶段（不含第十一阶段）已完成；第十一阶段延期；**第十二阶段（前端 UI/UX 重构）P0 四页已完成并上线**——按用户提供的《企业级RAG知识库 UI/UX 设计方案》用 Vue 3 + Element Plus 重做前端，知识库 / 文档 / AI 助手 / 检索测试四页小步交付完毕（v1.46~v1.51），生产产物已由 `npm run build:static` 替换 `app/static`（访问 127.0.0.1:8000 即新 SPA）；P1/P2（Chunk 查看器 / 工作台 / 模型中心 / 监控 / 历史会话）待用户验收后排期；
 - **环境**：Python 用 conda 环境 `rag_kb`；MySQL 本机常驻（容器版在宿主 3307）；Milvus `docker compose -f deploy/docker-compose.yml up -d milvus`（容器 `rag-milvus`，宿主 19530，会带起 etcd/minio）；MinerU `docker compose -f deploy/docker-compose.yml up -d mineru` 或一把起全栈（`up -d`，`127.0.0.1:8001`，**容器启动后首次解析需等 vLLM warmup 约 2~3 分钟**）；后端 `uvicorn app.main:app --reload`（8000，别和容器 backend 同时起）；
 - **代码地图**：解析器 `app/service/parser/`（新增格式改 `__init__.py` 注册表）；分块 `chunk_service.py`；入库与降级 `document_service.py`；检索问答 `rag_service.py`；向量库 `vector_service.py`；配置 `app/config/settings.py` + `.env`；表结构 `sql/schema.sql`（改表后跑 `scripts/verify_schema.py`）；
 - **必读约定**：`AGENTS.md`——小步提交（只提交 `dev`）、改完必回写文档、下载前说明是否需要代理；
@@ -332,7 +332,7 @@ project_root/
 - 技术栈：Vue 3 + TypeScript + Vite + Element Plus + SCSS + Pinia + Axios；hash 路由（StaticFiles 无 history 模式 404 回退能力，见 TECH_DESIGN §15.2）；
 - 页面范围（P0 先行，P1/P2 待验收后排期）：布局骨架（Sidebar 232px + Header 56px）→ 知识库（表格模式）→ 文档（上传 + Pipeline 状态可视化 + 文档表）→ AI 助手（SSE 流式 + Markdown + 引用来源）→ 检索测试（后端补"只检索不生成"接口）；
 - 构建与部署：`frontend/` 源码入库；`npm run build:static` 构建并将 dist **同步覆盖** `app/static/`（清空旧单页 index.html），产物随 git 提交——**Docker 镜像构建不需要 Node**；npm 依赖走 npmmirror 镜像（国内直连，免代理）；
-- 提交拆分：① 脚手架 + Design Tokens + 布局 + 路由占位（✅ 0676457）→ ② 知识库页（✅ 85f6bb4）→ ③ 文档页（✅ 7db5639）→ ④ Chat 页（✅ 8783029）→ ⑤ 检索测试（✅ 见 v1.50）→ ⑥ 构建产物替换上线 + 端到端验收 + 文档回写。
+- 提交拆分：① 脚手架 + Design Tokens + 布局 + 路由占位（✅ 0676457）→ ② 知识库页（✅ 85f6bb4）→ ③ 文档页（✅ 7db5639）→ ④ Chat 页（✅ 8783029）→ ⑤ 检索测试（✅ c0bc1f1）→ ⑥ 构建产物替换上线 + 端到端验收 + 文档回写（✅ 见 v1.51）。
 
 ---
 
@@ -409,5 +409,6 @@ project_root/
 | 2026-09-23 | v1.48 | 文档页交付：目标知识库选择器（带 `?kb_id=` 跳转入参）、拖拽多文件上传（el-upload 手动模式 + 同名覆盖勾选）、上传后串行轮询文档状态（1s×180 次上限）、`ProcessingPipeline.vue` 处理管线可视化（上传落盘→格式校验→文档解析→文本清洗→智能分块→向量嵌入→Milvus 写入→处理完成）、`StatusTag.vue` 状态标签（0/1/2/3/4 五态）、文档表格（文件名/大小/状态/分块数/解析器/时间）+ 单文档级联删除确认；浏览器冒烟 7 项全通过（含真实 txt 上传→worker 处理→表格出现→删除完整链路） | P0 第二页；后端任务只暴露文档级状态，Pipeline 处理中时"解析→入库"组整体高亮、不伪造细分进度（诚实边界，见 TECH_DESIGN §15.5）；多文件串行处理避免并发抢占 embedding |
 | 2026-09-23 | v1.49 | Chat 问答页交付：`api/chat.ts` 原生 fetch + ReadableStream 解析 SSE（axios 不支持流式），事件协议 start(溯源数组)→delta(token)→done(code/msg/answer/token_count) 与后端一致；消息列表（用户/AI 气泡）、流式逐字渲染 + 闪烁光标、`MarkdownBlock.vue`（marked + DOMPurify 消毒 v-html，防 LLM 输出 XSS）、「引用 N 条来源」按钮 + 引用抽屉（[来源N]/文档名/相似度/页码/完整片段）、停止生成（AbortController 中断，保留部分回答并标记"（已停止生成）"）、后端分级兜底提示以警示气泡展示（无向量重建中/无文档/未检索到，answer 为空时 notice 态）、Enter 发送 / Shift+Enter 换行、清空对话；浏览器冒烟 8 项全通过（真实问答链路：上传语料→带引用问答→无关问题兜底→停止生成） | P0 第三页；复用后端 `/api/v1/chat` 现有接口零改动；溯源 trace 字段（idx/doc_name/content/page/similarity）与检索测试接口的 RetrievalHit 结构一致 |
 | 2026-09-23 | v1.50 | 检索测试接口 + 页面：`schemas.py` 新增 RetrievalTestRequest/RetrievalHit/RetrievalTestResponse；`rag_service.retrieve_only()`（复用作答的 embedding→ensure_collection→召回→阈值过滤→`_build_trace` 溯源链路，**不调 LLM**，命中为空不触发重建/兜底话术，返回 embedding/retrieval/total 三档耗时）；`routers/retrieval.py`（POST /api/v1/retrieval/test）+ main.py 注册；前端 `views/Retrieval.vue`（知识库/top_k 选择、命中卡片 [来源N]/文档名/相似度/页码/原文、耗时 tag、未命中空态、dense-only 说明卡）；浏览器冒烟通过（命中卡片与耗时真实展示、top_k 生效、Enter 触发、无 console error） | P0 第四页；调参入口——换 embedding / top_k / rag_min_similarity 先看本页再动问答；实测 Wi-Fi 问题命中 0.5882（embedding 71.7ms，模型预热后）、无关问题"如何做一道菜"命中 0.3852（KB 内仅 1 chunk，ANN 必返回，超出 0.3 阈值故通过——真实 dense-only 行为，页面如实展示相似度而非隐藏） |
+| 2026-09-23 | v1.51 | 第十二阶段 P0 收官：`npm run build:static` 构建产物覆盖替换 `app/static/` 旧单页（vite 产物 + hash 路由，StaticFiles 托管无需 404 回退）；生产路径端到端验收 7 项全通过（127.0.0.1:8000：四页可达/空态/新建/删除/无 console error）；清理冒烟测试数据（测试知识库及其文档）；`README.md`（接口清单补 retrieval/test、前端进度 v1.51）、`deploy/README.md`（新增「前端产物随 git 提交（镜像不含 Node）」小节）同步 | P0 四页全量交付完成；过程中发现宿主 uvicorn 此前未带 `--reload` 启动导致新路由不生效（重启后正常），启动命令统一为 AGENTS.md 环境的 `uvicorn app.main:app --reload` |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。

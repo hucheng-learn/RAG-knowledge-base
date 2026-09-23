@@ -113,7 +113,7 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 
 按《企业级RAG知识库 UI/UX 设计方案》实施：**Vue 3 + Element Plus + Vite** SPA（P0 四页已交付，P1/P2 待验收后排期），源码在 [frontend/](frontend/)（Design Tokens、Sidebar + Header 布局、hash 路由），构建产物同步到 `app/static/` 由后端同源托管，访问 <http://127.0.0.1:8000/>。
 
-> 当前进度（v1.50）：P0 四页全部交付并通过浏览器冒烟（知识库 / 文档 / AI 助手 / 检索测试）；`app/static` 暂时仍是旧单页（知识库管理 / 文档上传 / RAG 问答三个 Tab），新页面全量交付后由 `npm run build:static` 一次性替换上线。
+> 当前进度（v1.51）：P0 四页全部交付并通过浏览器冒烟（知识库 / 文档 / AI 助手 / 检索测试），生产构建产物已由 `npm run build:static` 替换上线（访问 <http://127.0.0.1:8000/> 即新 SPA）；P1/P2（Chunk 查看器、工作台、监控等）待验收后排期。
 
 前端本地开发（改 `frontend/` 源码后）：
 

@@ -48,6 +48,17 @@ docker compose -f deploy/docker-compose.yml ps
 - 前端页面：<http://127.0.0.1:8000/>；健康检查：<http://127.0.0.1:8000/health>
 - MinerU 首次启动要等 vLLM warmup（约 2~3 分钟），期间 PDF 上传会自动降级到 pdfplumber，不会失败。
 
+## 前端产物随 git 提交（镜像不含 Node）
+
+前端源码在 `frontend/`（Vue 3 + Element Plus + Vite），**构建产物已提交进 git**：`frontend/npm run build:static` 会把 `dist/` 覆盖同步到 `app/static/`，Dockerfile 直接 `COPY app ./app`——**镜像构建不需要 Node、也不需要重新构建前端**。改了前端源码后只需要：
+
+```powershell
+cd D:\program_data\deepseek\RAG-project\frontend
+npm run build:static    # vite build + 同步覆盖 app/static（产物记得提交 git）
+```
+
+页面是 hash 路由（`/#/knowledge-base`、`/#/documents`、`/#/chat`、`/#/retrieval`），StaticFiles 托管无需服务端 404 回退配置。npm 依赖走 npmmirror 镜像直连（免代理）。
+
 ## 验证模型确实来自本地
 
 ```powershell

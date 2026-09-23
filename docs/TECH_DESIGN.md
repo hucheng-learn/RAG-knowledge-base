@@ -690,3 +690,4 @@ npm 依赖统一走 `registry.npmmirror.com`（frontend/.npmrc），与 Dockerfi
 > v1.3 2026-09-23 15.5 进度更新（知识库/文档页已交付）、15.6 补记两条：Pipeline 任务级粒度诚实边界（不伪造细分步骤进度）、vue-tsc 跨函数属性窄化陷阱。
 > v1.4 2026-09-23 15.5 进度更新（Chat 页已交付）；15.6 补记：SSE 客户端必须用原生 fetch+ReadableStream（axios 的 responseType:'stream' 在浏览器端不可用）、中断问答用 AbortController 且必须在 catch 里用 signal.aborted 区分"用户主动停止"与真实错误（前者保留部分回答、后者进错误气泡）。
 > v1.5 2026-09-23 15.5 进度更新（检索测试页，P0 四页全部交付）；补充 `retrieve_only` 与 `rag_answer` 的链路共用边界（不调 LLM、命中为空不触发重建/兜底话术——测试页要的是检索质量本身）。
+> v1.6 2026-09-23 第十五章收官：P0 四页生产产物替换 `app/static` 旧单页，生产路径端到端验收通过；部署侧注意宿主 uvicorn 启动需带 `--reload`（否则改后端代码/新增路由不生效，曾因漏 `--reload` 误判"新接口 405"）。
