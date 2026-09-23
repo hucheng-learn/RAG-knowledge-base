@@ -279,7 +279,8 @@ async def _run_rebuild(doc_ids: list) -> None:
 def _build_trace(hits: list) -> list:
     """根据 Milvus 命中记录，回查 MySQL 组装溯源片段。
 
-    返回按相似度排序的 [{idx, doc_name, content, page, similarity}, ...]
+    返回按相似度排序的 [{idx, doc_name, file_id, chunk_index, content, page,
+    similarity}, ...]；file_id/chunk_index 供前端 Chunk 查看器定位原分块。
     """
     if not hits:
         return []
@@ -305,6 +306,8 @@ def _build_trace(hits: list) -> list:
         trace.append({
             "idx": i,
             "doc_name": doc.original_filename,
+            "file_id": doc.file_id,
+            "chunk_index": chunk.chunk_index,
             "content": chunk.content,
             "page": chunk.page_number,
             "similarity": round(hit["distance"], 4),

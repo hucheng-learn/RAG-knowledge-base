@@ -10,7 +10,13 @@ from typing import Optional
 from fastapi import APIRouter, File, Query, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from app.models.schemas import ApiResponse, DeleteResponse, DocumentStatusResponse, UploadResponse
+from app.models.schemas import (
+    ApiResponse,
+    DeleteResponse,
+    DocumentChunksResponse,
+    DocumentStatusResponse,
+    UploadResponse,
+)
 from app.service import document_service
 from app.utils.response import success
 
@@ -52,4 +58,15 @@ async def document_status(file_id: str) -> dict:
 async def delete_document(file_id: str) -> dict:
     """删除单个文档，级联清理 Milvus + MySQL + 磁盘文件。"""
     result = await run_in_threadpool(document_service.delete_document, file_id)
+    return success(data=result)
+
+
+@router.get(
+    "/{file_id}/chunks",
+    response_model=ApiResponse[DocumentChunksResponse],
+    summary="查询文档分块列表",
+    description="Chunk 查看器数据源：按序返回全部分块与元数据（页码/类型/token/嵌入状态），用于切片质量检查与召回排查。",
+)
+async def document_chunks(file_id: str) -> dict:
+    result = await run_in_threadpool(document_service.list_document_chunks, file_id)
     return success(data=result)

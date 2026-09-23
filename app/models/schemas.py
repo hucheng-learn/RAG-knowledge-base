@@ -120,6 +120,8 @@ class RetrievalHit(BaseModel):
 
     idx: int = Field(..., description="来源编号（1 起，对应问答提示词里的 [来源N]）")
     doc_name: str = Field(..., description="文档名")
+    file_id: str = Field(..., description="文档唯一标识（前端跳转 Chunk 查看器用）")
+    chunk_index: int = Field(0, description="命中的 chunk 在文档内的序号（0 起）")
     content: str = Field(..., description="命中的 chunk 原文")
     page: Optional[int] = Field(None, description="来源页码")
     similarity: float = Field(..., description="余弦相似度（已过 rag_min_similarity 阈值）")
@@ -135,3 +137,28 @@ class RetrievalTestResponse(BaseModel):
     embedding_ms: float = Field(0, description="问题向量化耗时（ms）")
     retrieval_ms: float = Field(0, description="向量化+召回+溯源总耗时（ms）")
     total_ms: float = Field(0, description="接口端到端耗时（ms）")
+
+
+class ChunkItem(BaseModel):
+    """单个分块（原文 ↔ 元数据可追溯，含向量入库状态）。"""
+
+    chunk_index: int = Field(..., description="文档内块编号（0 起）")
+    content: str = Field(..., description="块原始文本")
+    page_number: int = Field(1, description="来源页码（1 起）")
+    block_type: Optional[str] = Field(None, description="结构化块类型(text/table/title/list等)")
+    heading_path: List[str] = Field(default_factory=list, description="标题层级路径")
+    token_count: Optional[int] = Field(None, description="token 数量")
+    embedding_status: int = Field(0, description="嵌入状态: 0待嵌入 1已嵌入 2失败")
+    vector_id: Optional[str] = Field(None, description="Milvus 向量ID")
+
+
+class DocumentChunksResponse(BaseModel):
+    """文档分块列表（Chunk 查看器：切片质量检查与召回问题排查）。"""
+
+    file_id: str
+    doc_name: str
+    status: int = Field(..., description="文档状态（同文档列表的 0-4）")
+    parser_name: Optional[str] = None
+    chunk_count: int = Field(0, description="分块总数")
+    embedded_count: int = Field(0, description="已写入 Milvus 的分块数")
+    chunks: List[ChunkItem] = Field(default_factory=list)

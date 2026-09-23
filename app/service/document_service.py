@@ -184,6 +184,17 @@ def _build_degrade_note(parse_result, filename: str | None) -> str | None:
     return note
 
 
+def _safe_json_list(raw: str | None) -> list:
+    """把 chunks.heading_path（JSON 数组字符串列）解析成列表；异常或非数组按空列表兜底。"""
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return value if isinstance(value, list) else []
+
+
 def _persist_document(
     file_id: str,
     original_filename: str,
@@ -423,6 +434,57 @@ def delete_document(file_id: str) -> dict:
         session.close()
     purge_document(doc)
     return {"deleted": True, "file_id": file_id, "doc_id": doc_id}
+
+
+def list_document_chunks(file_id: str) -> dict:
+    """按 file_id 查询文档全部分块（Chunk 查看器：检查切片质量、排查召回问题）。
+
+    按 chunk_index 升序返回；文档不存在抛 404 业务异常。
+    注意：session.close 前必须把 ORM 字段读出来（close 后访问会
+    DetachedInstanceError），heading_path 以 JSON 字符串存储，解析失败按空列表兜底。
+
+    Returns:
+        {file_id, doc_name, status, parser_name, chunk_count, embedded_count, chunks}
+    """
+    session = get_session()
+    try:
+        doc = session.query(Document).filter(Document.file_id == file_id).first()
+        if doc is None:
+            raise BizException(f"文档不存在: file_id={file_id}", code=RespCode.NOT_FOUND)
+        rows = (
+            session.query(Chunk)
+            .filter(Chunk.doc_id == doc.id)
+            .order_by(Chunk.chunk_index.asc())
+            .all()
+        )
+        # 脱离会话前把标量字段取到局部变量，避免 close 后懒加载
+        doc_status = doc.status
+        parser_name = doc.parser_name
+        doc_name = doc.original_filename
+        items = [
+            {
+                "chunk_index": c.chunk_index,
+                "content": c.content,
+                "page_number": c.page_number,
+                "block_type": c.block_type,
+                "heading_path": _safe_json_list(c.heading_path),
+                "token_count": c.token_count,
+                "embedding_status": c.embedding_status,
+                "vector_id": c.vector_id,
+            }
+            for c in rows
+        ]
+    finally:
+        session.close()
+    return {
+        "file_id": file_id,
+        "doc_name": doc_name,
+        "status": doc_status,
+        "parser_name": parser_name,
+        "chunk_count": len(items),
+        "embedded_count": sum(1 for it in items if it["embedding_status"] == 1),
+        "chunks": items,
+    }
 
 
 async def upload_document_async(

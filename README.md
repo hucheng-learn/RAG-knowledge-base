@@ -73,6 +73,7 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qw
 | POST   | `/api/v1/documents/upload?kb_id=&overwrite=false`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），保存后异步入队；显式覆盖同名旧文档 |
 | GET    | `/api/v1/documents/{file_id}/status` | 查询文档处理状态、任务尝试次数、解析器与错误信息 |
 | DELETE | `/api/v1/documents/{file_id}`      | 删除文档（级联清理 Milvus/MySQL/文件）                   |
+| GET    | `/api/v1/documents/{file_id}/chunks` | 文档分块列表（Chunk 查看器：原文↔Chunk↔Metadata、嵌入状态） |
 | POST   | `/api/v1/kbs`                      | 新建知识库                                        |
 | GET    | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情                                   |
 | DELETE | `/api/v1/kbs/{id}`                 | 删除知识库（级联清理全部文档）                              |
