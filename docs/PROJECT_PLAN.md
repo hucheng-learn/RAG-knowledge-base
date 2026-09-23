@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.46 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
+> 当前版本：v1.47 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-23
 
 ---
 
@@ -405,5 +405,6 @@ project_root/
 | 2026-09-19 | v1.44 | 解析降级条件补强：`FallbackDocumentParser` 在主解析器「成功但 `page_texts` 全空」时也降级到备用解析器（原逻辑只在抛异常时降级）；`MinerUParser` 新增 `_strip_base64_images`，剥离 markdown 内嵌的 `data:image/...;base64` 载荷（替换为 `[image]` 占位），避免几十万字符噪声流入 `documents.char_count` / 预览 / 解析缓存；`TECH_DESIGN.md` 13.4 同步 | 真实踩坑：图形化排版 PDF（脑图）被 MinerU 整页识别为一张大图，接口 200 但零文本块、markdown 全 base64 图 → 旧逻辑不降级 → 产出 0 分块的「成功」文档（前端显示 0 块、永远检索不到）；pdfplumber 实测同文件有 3728 字符文本层，降级后可正常分块 |
 | 2026-09-19 | v1.45 | MinerU `tier` 默认值 `standard` → `advanced`（settings.py 默认、`.env` / `.env.example`、`deploy/docker-compose.yml` backend 新增 `MINERU_TIER` 环境变量透传，可用 `deploy/.env` 覆盖）；`deploy/mineru/README.md`、`TECH_DESIGN.md` 13.2/13.4 同步 | 用户实测官方 API 能解析脑图而本地不行；对照实验：本地 `standard`（含强制 `ocr_mode=ocr`）把整页判成单 image 区域、零文本块，`advanced` 的 VLM 能把脑图转 mermaid 结构文本（节点文字完整）——差异根因是 tier 不是 OCR 开关；advanced 代价是 VLM 逐页推理更慢，故保留配置可回退 + v1.44 降级兜底 |
 | 2026-09-23 | v1.46 | 第十二阶段启动：新增 `frontend/` 前端工程（Vue 3 + TS + Vite + Element Plus + SCSS + Pinia + Axios），落地 Design Tokens（方案 3.1~3.3）、Element Plus 主题定制（主色 #3370FF）、Sidebar 232px + Header 56px 布局、hash 路由、axios 统一信封解包；构建产物由 `frontend/scripts/sync-static.mjs` 同步覆盖 `app/static/`（Docker 镜像不依赖 Node，产物随 git 提交）；npm 依赖走 npmmirror 镜像直连 | 按用户提供的 UI/UX 设计方案，将"无构建单页 HTML"升级为企业级 SPA；本提交只交付脚手架+布局+路由占位（四个 P0 页面为占位态），旧 `index.html` 暂保留至页面全量交付后一次性替换 |
+| 2026-09-23 | v1.47 | 知识库页交付：表格（名称/描述/文档数/创建时间/操作）、新建对话框（name 唯一 + 字数限制）、ElMessageBox 删除二次确认、行内「文档」跳转 `#/documents?kb_id=`；KB 列表入 Pinia store 供多页共用；`utils/format.ts`（大小/时间格式化）；浏览器端到端冒烟通过（localhost:5173，布局/创建/跳转/样式无 error） | P0 第一页；vite dev 只监听 ::1 需用 localhost 访问（127.0.0.1 拒连），记入 15.6 |
 
 > 后续任何方案调整：在此表追加一行，并同步修改正文对应小节。
