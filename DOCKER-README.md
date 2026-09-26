@@ -23,7 +23,13 @@ Compose 文件中的宿主机路径相对 `deploy/` 解析，因此默认挂载�
 
 目录名和模型内容需与配置匹配；默认 LLM 模型为 `qwen3:8b`，Embedding 维度为 1024。Docker 启动时直接使用这些本地文件，不会执行 `ollama pull` 或从 Hugging Face 下载模型。
 
-如果模型目录在其他位置，在 `deploy/.env` 中写宿主机绝对路径。Windows 路径建议使用正斜杠：
+默认目录就位时不需要 `deploy/.env`。如果模型目录在其他位置，先复制已提交的模板，再在 `deploy/.env` 中写宿主机绝对路径。Windows 路径建议使用正斜杠：
+
+```powershell
+Copy-Item deploy/.env.example deploy/.env
+```
+
+然后编辑 `deploy/.env`，填写实际路径：
 
 ```dotenv
 OLLAMA_MODELS_HOST_PATH=D:/path/to/ollama-models
