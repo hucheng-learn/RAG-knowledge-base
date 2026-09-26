@@ -22,7 +22,7 @@
    EMBEDDING_MODEL_HOST_PATH=D:\models\bge-m3
    ```
 
-4. 若本地缺少上游镜像，首次从 docker.io / quay.io 拉取 `mysql` / `etcd` / `minio` / `milvus` / `ollama`：**需要代理**；后端镜像自身的基础镜像走 DaoCloud + 清华 PyPI，不需要代理。`tag-images.ps1` 只给已有镜像增加本地标签，不下载也不复制镜像层。缺失时先拉取对应版本：
+4. 若本地缺少上游镜像，首次从 docker.io / quay.io 拉取 `mysql` / `etcd` / `minio` / `milvus` / `ollama`：**需要代理**；后端镜像自身的基础镜像走 DaoCloud + 清华 PyPI，不需要代理。缺失时先拉取对应版本：
 
    ```powershell
    docker pull mysql:8.0
@@ -37,8 +37,13 @@
 ```powershell
 cd D:\program_data\deepseek\RAG-project（选自己项目的目录）
 
-# 0）给本地已有的六个上游镜像加项目标签；缺镜像时脚本会指出来源名
-.\deploy\tag-images.ps1
+# 0）首次部署时给已有的上游镜像添加本地项目标签（不复制镜像层）
+docker tag mysql:8.0 rag-mysql:rag-8.0
+docker tag quay.io/coreos/etcd:v3.5.14 rag-etcd:rag-v3.5.14
+docker tag minio/minio:RELEASE.2023-03-20T20-16-18Z rag-minio:rag-RELEASE.2023-03-20T20-16-18Z
+docker tag milvusdb/milvus:v2.4.13 rag-milvus:rag-v2.4.13
+docker tag ollama/ollama:latest rag-ollama:rag-latest
+docker tag mineru:4 rag-mineru:rag-4
 
 # 1）单独构建后端镜像，便于看清构建日志
 docker compose -f deploy/docker-compose.yml build backend
@@ -54,7 +59,7 @@ docker compose -f deploy/docker-compose.yml up -d mineru    # 仅 PDF_PARSER=min
 docker compose -f deploy/docker-compose.yml ps
 ```
 
-Compose 中的运行镜像统一用 `rag-<服务>:rag-<上游版本>`；后端构建为 `rag-backend:rag-local`。例如 `mysql:8.0` 会增加别名 `rag-mysql:rag-8.0`，`mineru:4` 会增加别名 `rag-mineru:rag-4`。原始标签仍可供其他项目使用。第三方服务设置了 `pull_policy: never`，缺少项目标签时先运行脚本，避免 Docker 把 `rag-*` 误当作远程仓库拉取。镜像标签与容器名、数据卷相互独立；重新打标签不会迁移或清空数据。
+Compose 中的运行镜像统一用 `rag-<服务>:rag-<上游版本>`；后端构建为 `rag-backend:rag-local`。例如 `mysql:8.0` 会增加别名 `rag-mysql:rag-8.0`，`mineru:4` 会增加别名 `rag-mineru:rag-4`。原始标签仍可供其他项目使用。第三方服务设置了 `pull_policy: never`，缺少项目标签时先执行上面的 `docker tag`，避免 Docker 把 `rag-*` 误当作远程仓库拉取。镜像标签与容器名、数据卷相互独立；重新打标签不会迁移或清空数据。
 
 启动后：
 

@@ -588,7 +588,7 @@ MinerU 4.0 是**异步作业模型**，适配器（`MinerUParser`）按四步走
 
 ### 14.2 模型来源：为什么用 bind mount，而不是 `ollama pull` / `COPY` 进镜像
 
-Compose 运行镜像使用本地 `rag-*` 别名，tag 以 `rag-` 开头并保留上游版本（例如 `rag-milvus:rag-v2.4.13`）；后端构建为 `rag-backend:rag-local`。上游镜像仍按官方名字获取，`deploy/tag-images.ps1` 仅给同一镜像 ID 增加项目标签；第三方服务的 `pull_policy: never` 防止 Docker 尝试从远程拉取并不存在的 `rag-*` 仓库。原始镜像标签可继续供其他项目使用。
+Compose 运行镜像使用本地 `rag-*` 别名，tag 以 `rag-` 开头并保留上游版本（例如 `rag-milvus:rag-v2.4.13`）；后端构建为 `rag-backend:rag-local`。上游镜像仍按官方名字获取，首次部署按 `deploy/README.md` 的 `docker tag` 命令给同一镜像 ID 增加项目标签；第三方服务的 `pull_policy: never` 防止 Docker 尝试从远程拉取并不存在的 `rag-*` 仓库。原始镜像标签可继续供其他项目使用。
 
 | 方案 | 优点 | 代价 |
 |---|---|---|

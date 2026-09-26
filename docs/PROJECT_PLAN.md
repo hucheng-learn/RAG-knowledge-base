@@ -2,7 +2,7 @@
 
 > 开发以本文档为准，任何方案调整都先改这里（在「变更记录」登记），每个阶段完成后更新「进度跟踪」。
 >
-> 当前版本：v1.54 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-27
+> 当前版本：v1.55 ｜ 创建日期：2026-08-20 ｜ 最近更新：2026-09-27
 
 ---
 
@@ -268,7 +268,7 @@ project_root/
 
 - `Dockerfile` 使用 DaoCloud Python 基础镜像、清华 PyPI 和 BuildKit pip 缓存；
 - `deploy/docker-compose.yml` 统一编排后端、MySQL、Milvus、MinerU、Ollama，并保留健康检查、持久卷和本机端口覆盖；
-- 运行镜像使用 `rag-<服务>:rag-<上游版本>` 的本地项目标签（后端为 `rag-backend:rag-local`）；`deploy/tag-images.ps1` 给已有上游镜像添加别名，Compose 不拉取不存在的 `rag-*` 仓库；
+- 运行镜像使用 `rag-<服务>:rag-<上游版本>` 的本地项目标签（后端为 `rag-backend:rag-local`）；首次部署按 `deploy/README.md` 的 `docker tag` 命令给已有上游镜像添加别名，Compose 不拉取不存在的 `rag-*` 仓库；
 - **模型全部挂载宿主本地权重，离线可用**：Ollama 模型仓库默认 `<工作区>/models`（含 `qwen3:8b`）挂到 `/root/.ollama/models`，bge-m3 默认 `<工作区>/bge-m3` 只读挂到 `/models/bge-m3`；不再需要 `ollama pull`，也不从 HuggingFace 下载；
 - 相对路径以 compose 文件所在目录为基准（`../../models`、`../../bge-m3`），可用 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖；
 - Ollama 健康检查为 `ollama show qwen3:8b`（模型真能列出才算就绪，顺带验证模型目录挂载），后端 `depends_on` 该健康状态；
@@ -415,3 +415,4 @@ project_root/
 | 2026-09-23 | v1.52 | P1 Chunk 查看器后端：`schemas.py` 新增 ChunkItem/DocumentChunksResponse，`RetrievalHit` 扩展 file_id/chunk_index（`_build_trace` 同次 join 已带出，零额外查询，供前端"定位分块"溯源）；`document_service.list_document_chunks()` 按 chunk_index 升序返回分块与元数据（页码/类型/heading_path JSON 解析/token/embedding_status/vector_id，`_safe_json_list` 兜底）+ 嵌入统计；`routers/document.py` 新增 `GET /api/v1/documents/{file_id}/chunks`；curl 联调通过（404 信封、completed 文档 embedded_count=1/vector_id 回填正确） | P1 第一项：按设计方案 §5.5"原文↔Chunk↔Metadata 可追溯、切片质量可见、排查召回问题"；实测发现文档 status=2 先于向量回写（_persist 置 2 → insert → _mark_vectorized 回填），Chunk 页面需刷新按钮容忍该窗口 |
 | 2026-09-23 | v1.53 | P1 Chunk 查看器前端：新增 `views/ChunkList.vue`「分块查看」页（路由 `/chunks` + 侧边导航）——知识库/文档双选择器（`?doc_id=` 直达时优先 `kb_id` 入参、否则遍历 KB 找归属）、文档信息条（StatusTag/解析器/分块数/已嵌入统计）、关键字 + 嵌入状态过滤、chunk 卡片（序号/类型/页码/token/嵌入状态/heading_path 面包屑/vector_id、line-clamp 3 可展开）、`?hl=` 高亮定位 + scrollIntoView；三处入口：文档页操作列「查看分块」、检索页命中卡片与问答来源抽屉「定位分块」（`/chunks?doc_id=&hl=`）；`api/modules.ts` 补 ChunkItem/DocumentChunksResult/chunksApi；`npm run build:static` 产物同步；生产路径冒烟 8 项全通过（直达渲染/hl 蓝色高亮/过滤空态/文档页跳转/检索页定位跳转/无参默认选中，console 仅 1 条 el-link 弃用警告） | P1 第一项收口：从"检索命中一段话"可一键追溯到它在原文档中的分块全貌，切片质量与召回问题可自查；冒烟用测试知识库 kb_id=13「chunk-测试-KB」暂留，待用户验收后删除 |
 | 2026-09-27 | v1.54 | 统一 Compose 七个服务镜像为 `rag-*` 名称并在 tag 中加入 `rag-` 标识；新增 `deploy/tag-images.ps1` 给本地上游镜像生成别名，后端构建直接产出 `rag-backend:rag-local`；部署说明同步 | 便于在 `docker images` 中识别本项目镜像，同时保留原始上游标签与现有容器数据 |
+| 2026-09-27 | v1.55 | 删除一次性镜像打标脚本 `deploy/tag-images.ps1`，在部署说明中直接列出六条 `docker tag` 命令 | 本机标签已生成；保留新环境可照做的部署步骤，减少项目维护文件 |
