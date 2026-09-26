@@ -6,7 +6,7 @@
 ## 前置条件
 
 1. **Docker Desktop 已启动**（WSL2 后端）；GPU 机器需已能在容器内使用 NVIDIA GPU（本项目的 MinerU 镜像运行方式见 `mineru/README.md`）；
-2. **本地已有 `mineru:4` 镜像**（约 39.9GB，构建方式见 `mineru/README.md`）；
+2. **本地已有 `mineru:4` 镜像**（约 39.9GB，构建方式见 `mineru/README.md`），再按下文生成项目专用标签；
 3. **宿主机已备好两份模型权重**，默认路径如下（相对本文件上溯两级即工作区根目录）：
 
    | 用途 | 默认宿主路径 | 内容 |
@@ -22,12 +22,23 @@
    EMBEDDING_MODEL_HOST_PATH=D:\models\bge-m3
    ```
 
-4. 首次运行要从 docker.io 拉取基础镜像（`mysql` / `etcd` / `minio` / `milvus` / `ollama`）：**需要代理**；后端镜像自身的基础镜像走 DaoCloud + 清华 PyPI，不需要代理。
+4. 若本地缺少上游镜像，首次从 docker.io / quay.io 拉取 `mysql` / `etcd` / `minio` / `milvus` / `ollama`：**需要代理**；后端镜像自身的基础镜像走 DaoCloud + 清华 PyPI，不需要代理。`tag-images.ps1` 只给已有镜像增加本地标签，不下载也不复制镜像层。缺失时先拉取对应版本：
+
+   ```powershell
+   docker pull mysql:8.0
+   docker pull quay.io/coreos/etcd:v3.5.14
+   docker pull minio/minio:RELEASE.2023-03-20T20-16-18Z
+   docker pull milvusdb/milvus:v2.4.13
+   docker pull ollama/ollama:latest
+   ```
 
 ## 构建 + 启动
 
 ```powershell
 cd D:\program_data\deepseek\RAG-project（选自己项目的目录）
+
+# 0）给本地已有的六个上游镜像加项目标签；缺镜像时脚本会指出来源名
+.\deploy\tag-images.ps1
 
 # 1）单独构建后端镜像，便于看清构建日志
 docker compose -f deploy/docker-compose.yml build backend
@@ -42,6 +53,8 @@ docker compose -f deploy/docker-compose.yml up -d mineru    # 仅 PDF_PARSER=min
 # 3）查看状态：rag-ollama 显示 healthy 才说明本地 qwen3:8b 已被正确识别
 docker compose -f deploy/docker-compose.yml ps
 ```
+
+Compose 中的运行镜像统一用 `rag-<服务>:rag-<上游版本>`；后端构建为 `rag-backend:rag-local`。例如 `mysql:8.0` 会增加别名 `rag-mysql:rag-8.0`，`mineru:4` 会增加别名 `rag-mineru:rag-4`。原始标签仍可供其他项目使用。第三方服务设置了 `pull_policy: never`，缺少项目标签时先运行脚本，避免 Docker 把 `rag-*` 误当作远程仓库拉取。镜像标签与容器名、数据卷相互独立；重新打标签不会迁移或清空数据。
 
 启动后：
 

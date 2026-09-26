@@ -52,6 +52,7 @@ uvicorn app.main:app --reload
 
 ```powershell
 cd D:\program_data\deepseek\RAG-project
+.\deploy\tag-images.ps1                         # 为已有的六个上游镜像添加 rag-* 项目标签
 docker compose -f deploy/docker-compose.yml build backend   # 构建后端镜像（可选，up --build 也会构建）
 docker compose -f deploy/docker-compose.yml up -d --build   # 构建并启动全栈
 docker compose -f deploy/docker-compose.yml ps              # 查看状态（rag-ollama 应为 healthy）

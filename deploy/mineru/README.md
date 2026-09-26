@@ -15,7 +15,10 @@
 # 1) 构建镜像（在 MinerU 官方仓库根目录执行，国内用 china 版 Dockerfile）
 docker build -t mineru:4 -f docker/china/Dockerfile .
 
-# 2) 启动服务（在 RAG 项目根目录执行；只想单起 MinerU 时用服务名）
+# 2) 在 RAG 项目根目录给 MinerU 镜像加项目标签
+docker tag mineru:4 rag-mineru:rag-4
+
+# 3) 启动服务（在 RAG 项目根目录执行；只想单起 MinerU 时用服务名）
 docker compose -f deploy/docker-compose.yml up -d mineru
 curl.exe http://127.0.0.1:8001/v1/health
 ```
