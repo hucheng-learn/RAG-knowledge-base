@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     milvus_metric: str = "COSINE"            # 相似度度量
     milvus_index_type: str = "HNSW"          # 索引类型
 
-    # ---------- 大模型（RAG 问答，第五阶段） ----------
+    # ---------- 大模型 ----------
     llm_provider: str = "deepseek"       # deepseek / ollama
     # DeepSeek 官方 API（OpenAI 兼容格式）
     llm_base_url: str = "https://api.deepseek.com"

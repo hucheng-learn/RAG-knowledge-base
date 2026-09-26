@@ -4,8 +4,7 @@
 只依赖 DocumentParser 接口，新增格式（docx、OCR 等）只需新增一个
 解析器实现，零改动上层代码——这就是「面向接口编程」。
 
-ParseResult 携带 page_texts（逐页文本），为后续分块模块的
-「来源页码」溯源功能预留数据（第二阶段使用）。
+ParseResult 携带逐页文本和结构化块，供分块、检索来源展示使用。
 """
 
 from abc import ABC, abstractmethod

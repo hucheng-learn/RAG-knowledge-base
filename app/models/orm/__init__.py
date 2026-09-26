@@ -6,8 +6,8 @@
    pool_recycle 定时回收（MySQL wait_timeout 默认 8h，连接空闲超时
    会被服务端断开，必须提前回收重建）；
 2. init_db()：先连「服务器」（不带库名）建库（utf8mb4 字符集），
-   再连库建表。开发阶段用 create_all 自动建表；
-   生产建议引入 Alembic 做版本化迁移（第七阶段可补）；
+   再连库建表。应用启动时使用 create_all 创建缺失的表；
+   生产环境的结构演进可使用 Alembic 管理迁移；
 3. 表模型在文件底部导入，注册进 Base.metadata —— create_all 才能
    知道要建哪些表（SQLAlchemy 不会自动发现模型）。
 """

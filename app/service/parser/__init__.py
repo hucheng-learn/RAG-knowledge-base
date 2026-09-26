@@ -57,8 +57,7 @@ def get_parser(extension: str) -> DocumentParser:
         return parser_cls()
 
     if extension == ".pdf":
-        # PDF 是「基线 vs MinerU」的对比开关（第十一阶段实验变量），
-        # 选 MinerU 时包一层降级，避免 MinerU 故障导致上传整体失败
+        # 使用 MinerU 时包一层降级解析器，避免服务故障导致 PDF 无法入库。
         if get_settings().pdf_parser == "mineru":
             return FallbackDocumentParser(MinerUParser(), PdfParser())
         return PdfParser()

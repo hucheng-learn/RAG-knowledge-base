@@ -1,6 +1,6 @@
 """RAG 问答编排：问题向量化 → Milvus 召回 → 溯源 → 拼上下文 → 流式生成。
 
-全链路（对应 PROJECT_PLAN 3.2 问答流程）：
+全链路：
 用户提问 → question 向量化 → Milvus 召回 topN → 回查 MySQL 拿原文/页码/文档名
 → 组装系统提示词 + 检索上下文 + 问题 → SSE 流式回答 + 溯源。
 
@@ -175,7 +175,7 @@ async def retrieve_only(
     kb_id: Optional[int] = None,
     top_k: int = 4,
 ) -> dict:
-    """只检索不生成：供检索测试与调参（对应 PROJECT_PLAN 12.0.4 检索测试页）。
+    """只检索不生成：供检索测试与调参。
 
     与 rag_answer 共用 embedding → 召回 → 阈值过滤 → 溯源链路，
     但**不调 LLM**：命中为空时返回空 hits，不触发向量重建、不生成兜底话术——
@@ -259,8 +259,7 @@ def _has_docs_in_scope(kb_id: Optional[int]) -> bool:
 def _spawn_rebuild(doc_ids: list) -> None:
     """后台触发向量重建（fire-and-forget，不阻塞当前问答流）。
 
-    生产形态：这里只是进程内后台任务；接入 Celery/任务队列后
-    改为投递消息（第六阶段），本函数保持同样的调用面。
+    在进程内启动后台重建任务，不阻塞当前问答流。
     """
     task = asyncio.create_task(_run_rebuild(doc_ids))
     _background_tasks.add(task)

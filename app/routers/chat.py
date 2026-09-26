@@ -1,7 +1,6 @@
 """RAG 问答接口：SSE 流式。
 
-注意：流式接口不用 {code,msg,data} 信封，改用 SSE 事件协议
-（event: start / delta / done），见 PROJECT_PLAN 6.4。
+流式接口使用 SSE 事件协议（start / delta / done），不使用 {code,msg,data} 信封。
 """
 
 import json

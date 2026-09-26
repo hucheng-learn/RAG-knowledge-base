@@ -5,8 +5,8 @@
 
 ## 前置条件
 
-1. **Docker Desktop 已启动**（WSL2 后端）；GPU 机器需已能在容器内使用 NVIDIA GPU（本项目的 MinerU 镜像运行方式见 `mineru/README.md`）；
-2. **本地已有 `mineru:4` 镜像**（约 39.9GB，构建方式见 `mineru/README.md`），再按下文生成项目专用标签；
+1. **Docker Desktop 已启动**（WSL2 后端）；使用 MinerU 时，GPU 机器需允许容器访问 NVIDIA GPU；
+2. **本地已有 `mineru:4` 镜像**，并按下文生成项目专用标签；
 3. **宿主机已备好两份模型权重**，默认路径如下（相对本文件上溯两级即工作区根目录）：
 
    | 用途 | 默认宿主路径 | 内容 |
@@ -14,7 +14,7 @@
    | Ollama LLM | `<工作区>/models` | `manifests/registry.ollama.ai/library/qwen3/{8b,latest}` + `blobs/`（qwen3:8b，约 4.9GB） |
    | Embedding | `<工作区>/bge-m3` | sentence-transformers 目录（`pytorch_model.bin` / tokenizer / `1_Pooling/` 等，约 4.3GB，1024 维） |
 
-   模型放在别的目录时，用环境变量覆盖（**建议写绝对路径**）。compose 的变量插值只读 `deploy/.env` 与当前 shell 环境变量——`RAG-project/.env` 是**应用**配置，不参与 compose 插值（已实测确认）：
+   模型放在别的目录时，用环境变量覆盖（**建议写绝对路径**）。Compose 的变量插值读取 `deploy/.env` 与当前 shell 环境变量；项目根目录的 `.env` 用于应用配置：
 
    ```dotenv
    # deploy/.env（可选，不放也能用默认路径）
@@ -83,7 +83,7 @@ npm run build:static    # vite build + 同步覆盖 app/static（产物记得提
 # Ollama：应列出 qwen3:8b（来自宿主 models 目录，不是 pull 下来的）
 docker compose -f deploy/docker-compose.yml exec ollama ollama list
 
-# 后端：应输出 /models/bge-m3 cpu（容器内生效配置）
+# 查看后端当前生效的 Embedding 模型、设备和 LLM 配置
 docker compose -f deploy/docker-compose.yml exec backend python -c "from app.config.settings import get_settings as g; s=g(); print(s.embedding_model, s.embedding_device, s.llm_model)"
 ```
 
@@ -101,35 +101,32 @@ docker compose -f deploy/docker-compose.yml down -v           # 连命名卷一�
 
 默认宿主端口：后端 8000、MinerU 8001、MySQL 3307（避开本机 MySQL80 的 3306）、Milvus 19530/9091、MinIO 9000/9001、Ollama 11434。
 
-`backend` 占宿主 8000，与宿主直接跑 `uvicorn` 冲突：只想要依赖服务时**指定服务名**，例如 `up -d milvus`（Milvus 的 `depends_on` 会一并带起 etcd/minio）、`up -d mineru`，不要连 `backend` 一起起。旧版独立 compose（`docker-compose.milvus.yml` / `docker-compose.mineru.yml`）及其 bind 数据目录 `deploy/volumes/` 已删除（2026-09-18，释放约 165MB），因此不再存在"两套栈端口冲突、切换前先 down 另一方"的问题。
+`backend` 占宿主 8000，与宿主直接运行 `uvicorn` 冲突。只启动依赖服务时指定服务名，例如 `up -d milvus`（会一并启动 etcd 和 MinIO）或 `up -d mineru`。
 
 覆盖端口与模型路径：在 `deploy/.env` 里写 `BACKEND_HOST_PORT` / `MINERU_HOST_PORT` / `MILVUS_HOST_PORT` / `OLLAMA_HOST_PORT` / `MYSQL_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` / `TZ`，或直接作为 shell 环境变量传入。
 
 ## 资源与已知限制
 
-- 统一 compose 用**命名卷**，首次启动是空库：MySQL 表由后端启动时 `create_all` 自动建，Milvus collection 首次入库时惰性创建；**换过数据卷（`down -v`、卷被删）后旧向量不会被带过来**，历史文档需要重新上传（或对 MySQL 里仍有 chunks 的文档跑 `scripts/rebuild_vectors.py`）。旧独立 compose 的 bind 数据（`deploy/volumes/`）已于 2026-09-18 删除；
-- **Embedding 走 GPU**（`EMBEDDING_DEVICE=cuda`，backend 服务已预留 GPU 设备）：镜像内的 torch 是 `2.14.0+cu130`，实测在 RTX 5080 Laptop（sm_120 / capability 12.0）上 `torch.cuda.is_available()=True`，**不需要替换 torch 底座**（旧结论"镜像内是 CPU 版 torch"已作废）。预热后对照：批量 512 条 GPU 1.42s / CPU 15.9s、单条 GPU 12.8ms / CPU 447ms（约 11~35 倍），模型常驻约 2.2GB 显存；显存紧张时在 `deploy/.env` 写 `EMBEDDING_DEVICE=cpu` 即可退回 CPU；
-- **三个容器共用一张显卡（Ollama + MinerU + backend）**：Ollama 常驻 qwen3:8b 约 5.6GB、bge-m3 约 2.2GB，MinerU 首次解析 PDF/图片时 vLLM warmup 还会一次性预占数 GB（16GB 卡上偏紧）。显存不足时按优先级让出：先删 `ollama:` 服务的 `deploy.resources` 段（Ollama 走 CPU），或给 MinerU 降档，最后才是把 `EMBEDDING_DEVICE` 改回 `cpu`；
-- 模型目录是 Windows bind mount，首次加载 qwen3:8b 会比镜像内层慢一些；`OLLAMA_KEEP_ALIVE` 默认已设为 `30m`，避免间隔稍长就重新加载。
+- Compose 使用命名卷保存 MySQL 和 Milvus 数据。执行 `down -v` 会清空这些数据；若 MySQL 分块仍在，可用 `scripts/rebuild_vectors.py` 重建 Milvus 向量。
+- Embedding 默认使用 GPU（`EMBEDDING_DEVICE=cuda`）；显存不足时可在 `deploy/.env` 设置 `EMBEDDING_DEVICE=cpu`。Ollama、MinerU 和后端可能竞争 GPU 显存。
+- 模型目录通过宿主机挂载；首次从 Windows 目录加载模型可能较慢。
 
 ## 常见问题
 
 **上传后文档状态 `failed`，`last_error` 是 `collection not found[database=default][collection=doc_chunks]`**
 
-Milvus 换了数据卷（切栈、`down -v`、数据卷被删）后集合不存在，异步任务在解析前"清理重试残留"这一步就抛异常，重试 3 次后文档终态失败、分块数为 0。v1.39 起该步骤已幂等（无集合 → 跳过删除）且改为先 `ensure_collection()` 再清理，任务会自愈，重新上传即可。
+如果更换或清空 Milvus 数据卷后文档处理失败，先确认 collection 已创建，再重新排队处理失败文档。当前 worker 会在清理旧向量前确保 collection 存在；可用 `scripts/rebuild_vectors.py` 从 MySQL 中已有的分块重建向量。
 
-旧版本或已进入 `failed` 终态的任务，手工恢复两步：
+已进入 `failed` 终态的任务，可在 MySQL 中重置任务与文档状态后由 worker 重新处理：
 
 ```powershell
-# 1）补建集合（等价于后端的 ensure_collection，用宿主 conda 环境执行）
-cd D:\program_data\deepseek\RAG-project
-conda activate rag_kb
+# 确认 collection 存在（用项目 Python 环境执行）
 python -c "from app.service.vector_service import ensure_collection; ensure_collection()"
 
-# 2）把失败任务重新入队（MySQL 在容器的 3307 端口；attempts 归零以重置重试次数）
+# 在 MySQL 中重置失败任务（按实际 task_id 和 doc_id 替换占位符）
 #    update document_tasks set status=0, attempts=0, next_run_at=now(), locked_at=null, last_error=null where id=<task_id>;
 #    update documents set status=0, parse_error=null where id=<doc_id>;
-#    worker 会在下个轮询周期（默认 1s）自动领取并重新解析入库
+#    worker 会自动领取任务并重新处理
 ```
 
 **日志时间（和 `created_at`）比宿主慢 8 小时**
@@ -146,7 +143,7 @@ TZ=Asia/Shanghai
 ```powershell
 docker compose -f deploy/docker-compose.yml up -d mysql backend
 docker exec rag-backend date                                   # 应显示 CST
-docker exec rag-mysql mysql -uroot -p123456 -e "select @@system_time_zone, now();"
+docker exec -it rag-mysql mysql -uroot -p -e "select @@system_time_zone, now();"
 ```
 
 注意：TZ 只影响**新写入**的时间，已按 UTC 落库的历史行不会被回改，看起来仍会早 8 小时。

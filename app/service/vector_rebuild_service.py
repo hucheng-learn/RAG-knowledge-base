@@ -3,9 +3,9 @@
 能力：幂等补齐向量 —— 读 MySQL chunks → embedding → 写 Milvus → 回填 vector_id。
 纯增量、无任何删除；对已有向量的 chunk 覆盖写同 id 向量（无副作用）。
 
-设计（面试点）：
+设计要点：
 1. 与 scripts/rebuild_vectors.py（薄壳 CLI）解耦，核心可被任意调用方复用；
-2. 第六阶段接入 APScheduler 后，定时对账直接调 rebuild_documents()；
+2. 调度器可复用 rebuild_documents() 执行定期对账；
 3. 查询兜底（rag_service）检测到向量缺失时，后台触发同一函数。
 """
 

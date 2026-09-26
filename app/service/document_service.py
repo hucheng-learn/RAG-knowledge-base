@@ -1,11 +1,8 @@
 """文档业务逻辑层：上传、解析、清洗、分块、向量入库的编排入口。
 
-第三阶段全链路：保存 → 解析 → 清洗 → 分块 → MySQL 落库(拿chunk_id)
-→ 向量化 → 写 Milvus → 回填 MySQL.vector_id。
-
-双写一致性（6.3）：先 MySQL 落库（拿到 chunk.id 作 Milvus 主键），
-再写 Milvus；任一环节失败走 _compensate 补偿（删 Milvus + 删 MySQL + 删文件），
-保证两边不残留半成品。CPU 密集/阻塞 IO 全部 run_in_threadpool 防阻塞事件循环。
+处理流程：保存 → 解析 → 清洗 → 分块 → 写入 MySQL 和 Milvus。
+MySQL 与 Milvus 不共享事务，失败时通过补偿清理半成品；CPU 密集和阻塞 I/O
+使用 run_in_threadpool 执行，避免阻塞事件循环。
 """
 
 from dataclasses import dataclass
@@ -97,7 +94,7 @@ async def upload_document(
         )
 
         # 解析降级信息（如 MinerU 失败回退 pdfplumber）：记录到 documents.parse_error，
-        # 不把降级结果伪装成完整解析（第九阶段会升级为独立的 degraded 状态）
+        # 记录实际解析器及降级原因，便于查询处理结果。
         degrade_note = _build_degrade_note(parse_result, upload_file.filename)
 
         # 1) MySQL 落库（单事务），拿 doc_id + 每个 chunk 的 id
@@ -322,7 +319,7 @@ def _compensate(doc_id: int, kb_id: int | None = None) -> None:
         session.close()
 
 
-# ---------------- 第四阶段：知识库归属 + 文档级联删除 ----------------
+# ---------------- 知识库归属与文档级联删除 ----------------
 
 def _validate_kb(kb_id: int) -> None:
     """校验知识库存在，不存在抛业务异常（code=NOT_FOUND）。"""

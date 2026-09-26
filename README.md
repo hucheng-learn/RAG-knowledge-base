@@ -1,136 +1,94 @@
-# 企业知识库 RAG 后端系统
+# 企业知识库 RAG
 
-基于 FastAPI + Milvus + MySQL 的企业知识库 RAG 后端，配套极简前端页面。
+基于 FastAPI、Vue 3、MySQL 和 Milvus 的本地部署知识库。支持文档异步解析入库、向量检索、流式问答和检索结果溯源。文档解析与 Embedding 在本地运行；LLM 可配置为 DeepSeek API 或本地 Ollama。
 
-> 开发计划见** **`docs/PROJECT_PLAN.md`。
-> 技术方案与面试要点见 `docs/TECH_DESIGN.md`。
-> 部署要点见 `deploy/README.md`。
+## 功能
 
+- 知识库与文档管理，支持同名文档显式覆盖和级联删除。
+- 上传任务异步处理，支持状态查询、失败重试和向量重建。
+- 文本、PDF、Office 文档和图片解析；PDF 支持 pdfplumber 与本地 MinerU，并可降级解析。
+- 基于 bge-m3 与 Milvus 的向量检索；MySQL 保存文档、分块和任务元数据。
+- SSE 流式 RAG 问答、来源展示、独立检索测试和分块追溯。
+- Vue 前端由 FastAPI 同源托管，生产构建产物已包含在 `app/static/`。
 
-## 本地启动
+## 快速启动
 
-```bash
-# 1. 激活虚拟环境（本项目使用 conda 环境 rag_kb，已装 GPU torch）
-conda activate rag_kb
-
-# 2. 安装依赖
-pip install -r requirements.txt
-
-# 3. 复制环境变量模板为 .env，并按本机实际情况修改：
-#    EMBEDDING_MODEL（本地 bge-m3 路径）、EMBEDDING_DEVICE（cuda/cpu）、
-#    MYSQL_PASSWORD、LLM_API_KEY；PDF_PARSER 决定 PDF 用 pdfplumber 还是 mineru
-copy .env.example .env          # Windows
-# cp .env.example .env          # Linux/macOS
-
-# 4. 启动依赖服务（统一 Compose，按需指定服务名；别连 backend 一起起，否则和宿主 8000 冲突）
-#    - MySQL：本地开发直接用本机 MySQL80（常驻），或容器版 mysql（宿主 3307）
-#    - Milvus：容器 rag-milvus（宿主 19530）；depends_on 会把 etcd/minio 一起带起来
-docker compose -f deploy/docker-compose.yml up -d milvus
-
-# 4.1 （可选）本地 MinerU 解析服务：仅当 .env 里 PDF_PARSER=mineru 时才需要
-#     镜像 mineru:4 由 MinerU 仓库 docker/china/Dockerfile 构建，模型权重已打进镜像；
-#     服务在 http://127.0.0.1:8001/v1（只绑回环、不出内网），需要 NVIDIA GPU
-docker compose -f deploy/docker-compose.yml up -d mineru
-curl.exe http://127.0.0.1:8001/v1/health     # 健康检查
-#     注意：容器启动后"第一次"解析要等 vLLM 引擎 warmup（约 2~3 分钟），之后单篇约 3 秒
-
-# 5. 启动服务（本地默认绑定 127.0.0.1:8000）
-uvicorn app.main:app --reload
-# 如需局域网/其他设备访问，改用：uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-需要一键启动完整本地栈（Docker）时使用统一 Compose（会启动独立的 MySQL、Milvus、MinerU、Ollama 和后端）。
-
-**前置：宿主机已备好两份本地权重**，compose 直接挂载它们，**不联网下载、不需要 `ollama pull`**：
-
-| 用途 | 默认宿主路径 | 内容 |
-| --- | --- | --- |
-| Ollama LLM | `<工作区>/models` | Ollama 模型仓库（含 `qwen3:8b`，blobs + manifests） |
-| Embedding | `<工作区>/bge-m3` | bge-m3 权重目录（sentence-transformers 格式，1024 维） |
-
-路径不同时用 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖（写在 `deploy/.env`，或用 shell 环境变量）。完整说明见 `deploy/README.md`。
+### 本地运行后端
 
 ```powershell
-cd D:\program_data\deepseek\RAG-project
-# 首次部署先按 deploy/README.md 给上游镜像添加 rag-* 本地标签
-docker compose -f deploy/docker-compose.yml build backend   # 构建后端镜像（可选，up --build 也会构建）
-docker compose -f deploy/docker-compose.yml up -d --build   # 构建并启动全栈
-docker compose -f deploy/docker-compose.yml ps              # 查看状态（rag-ollama 应为 healthy）
-docker compose -f deploy/docker-compose.yml exec ollama ollama list  # 确认 qwen3:8b 来自本地模型仓库
+conda activate rag_kb
+pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-同一套 Compose 里 `backend` 与宿主 `uvicorn` 都占 8000：全栈起来后就别再在宿主跑 uvicorn；端口或模型路径冲突时用环境变量 `*_HOST_PORT` / `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 覆盖（写在 `deploy/.env`，仅 compose 插值读它）。
+按 `.env` 配置数据库、Milvus、Embedding 模型路径和 LLM。启动 MySQL 与 Milvus（或使用本机已有服务），然后运行：
 
-启动后访问：
+```powershell
+docker compose -f deploy/docker-compose.yml up -d milvus
+uvicorn app.main:app --reload
+```
 
-- **前端页面**：<http://127.0.0.1:8000/> （知识库管理 / 文档上传 / RAG 问答 / 检索测试 / 分块查看）
-- Swagger 文档：<http://127.0.0.1:8000/docs>
-- 健康检查：<http://127.0.0.1:8000/health>
+若使用本地 MinerU，设置 `PDF_PARSER=mineru` 并启动解析服务：
 
-## 已提供接口
+```powershell
+docker compose -f deploy/docker-compose.yml up -d mineru
+```
 
-| 方法     | 路径                                 | 说明                                           |
-| ------ | ---------------------------------- | -------------------------------------------- |
-| POST   | `/api/v1/documents/upload?kb_id=&overwrite=false`  | 上传文档（txt/md/pdf/docx/xls/图片等，单文件 ≤20MB），保存后异步入队；显式覆盖同名旧文档 |
-| GET    | `/api/v1/documents/{file_id}/status` | 查询文档处理状态、任务尝试次数、解析器与错误信息 |
-| DELETE | `/api/v1/documents/{file_id}`      | 删除文档（级联清理 Milvus/MySQL/文件）                   |
-| GET    | `/api/v1/documents/{file_id}/chunks` | 文档分块列表（Chunk 查看器：原文↔Chunk↔Metadata、嵌入状态） |
-| POST   | `/api/v1/kbs`                      | 新建知识库                                        |
-| GET    | `/api/v1/kbs` / `/api/v1/kbs/{id}` | 知识库列表 / 详情                                   |
-| DELETE | `/api/v1/kbs/{id}`                 | 删除知识库（级联清理全部文档）                              |
-| POST   | `/api/v1/chat`                     | RAG 问答（SSE 流式：start 溯源 / delta 回答 / done 结束） |
-| POST   | `/api/v1/retrieval/test`           | 检索测试（只检索不生成：命中 chunk + 相似度 + 各阶段耗时） |
+### Docker 全栈
 
-## 目录结构
+全栈 Compose 包含 MySQL、Milvus、MinerU、Ollama 和后端。模型权重需预先放在宿主机，或通过 `deploy/.env` 设置 `OLLAMA_MODELS_HOST_PATH` 和 `EMBEDDING_MODEL_HOST_PATH`。首次部署需要准备 Compose 中引用的本地镜像标签，详细步骤见 [`deploy/README.md`](deploy/README.md)。
 
-见 `docs/PROJECT_PLAN.md` 第 5 节。关键目录：
+```powershell
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml ps
+```
 
-| 路径         | 说明                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------- |
-| `app/`     | 后端代码（config / routers / service / models / utils / static）                             |
-| `frontend/` | 前端源码工程（Vue 3 + TS + Vite + Element Plus；`npm run build:static` 产出到 `app/static/`） |
-| `docs/`    | `PROJECT_PLAN.md`（计划与进度，唯一事实来源）、`TECH_DESIGN.md`（技术方案与面试要点）                             |
-| `deploy/`  | `docker-compose.yml`（唯一入口：全栈一键启动 + 按服务名单独启动依赖，含本地模型挂载）、`mineru/`（MinerU 镜像构建与部署说明） |
-| `sql/`     | `schema.sql`——三张表建表 SQL（权威版本）                                                           |
-| `scripts/` | `verify_schema.py`（ORM↔DB 字段校验）、`rebuild_vectors.py`（向量重建/对账补偿）                         |
-| `tests/`   | 回归测试（解析基线等）                                                                             |
+访问 <http://127.0.0.1:8000/>；API 文档为 <http://127.0.0.1:8000/docs>，健康检查为 <http://127.0.0.1:8000/health>。
+
+## API
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `POST` | `/api/v1/kbs` | 创建知识库 |
+| `GET` | `/api/v1/kbs`、`/api/v1/kbs/{id}` | 查询知识库 |
+| `DELETE` | `/api/v1/kbs/{id}` | 删除知识库及其文档 |
+| `POST` | `/api/v1/documents/upload?kb_id=&overwrite=false` | 上传并排队处理文档 |
+| `GET` | `/api/v1/documents/{file_id}/status` | 查询处理状态 |
+| `GET` | `/api/v1/documents/{file_id}/chunks` | 查看文档分块与嵌入状态 |
+| `DELETE` | `/api/v1/documents/{file_id}` | 删除文档及关联数据 |
+| `POST` | `/api/v1/chat` | SSE 流式问答 |
+| `POST` | `/api/v1/retrieval/test` | 只检索并返回命中片段与耗时 |
 
 ## 前端
 
-按《企业级RAG知识库 UI/UX 设计方案》实施：**Vue 3 + Element Plus + Vite** SPA（P0 四页 + P1 Chunk 查看器已交付，P1/P2 其余待验收后排期），源码在 [frontend/](frontend/)（Design Tokens、Sidebar + Header 布局、hash 路由），构建产物同步到 `app/static/` 由后端同源托管，访问 <http://127.0.0.1:8000/>。
+源码位于 `frontend/`，使用 Vue 3、TypeScript、Vite 和 Element Plus。页面包括知识库、文档、问答、检索测试和分块查看。
 
-> 当前进度（v1.53）：P0 四页 + **P1 Chunk 查看器**全部交付并通过浏览器冒烟——「分块查看」页展示文档的分块与元数据（序号/类型/页码/token/嵌入状态/标题路径/vector_id），支持关键字与嵌入状态过滤；三处入口联动追溯：文档页「查看分块」、检索页与问答来源抽屉的「定位分块」（命中片段 → 高亮跳转到所属分块）。生产构建产物已由 `npm run build:static` 替换上线（访问 <http://127.0.0.1:8000/> 即新 SPA）；P1 其余（模型中心 / 来源预览）与 P2（工作台 / 监控 / 历史会话）待排期。
-
-前端本地开发（改 `frontend/` 源码后）：
-
-```bash
+```powershell
 cd frontend
-npm install                 # 依赖走 npmmirror 镜像，国内直连免代理
-npm run dev                 # vite dev server（5173，/api 代理到 127.0.0.1:8000）
-npm run build:static        # 生产构建并把 dist 覆盖同步到 app/static（产物提交 git）
+npm install
+npm run dev
+npm run build:static
 ```
 
-约定：`app/static` 下的构建产物**禁止手改**；Docker 镜像不装 Node，直接 `COPY app ./app` 使用已提交产物；hash 路由无需服务端 404 回退配置。详见 `docs/TECH_DESIGN.md` §15。
+`build:static` 会将构建结果同步到 `app/static/`。该目录是运行时静态资源，直接改前端源码后应重新构建，不要手改生成文件。
 
-## 支持的文件格式与解析器
+## 文档格式
 
-| 格式                                  | 解析器             | 说明                                             |
-| ----------------------------------- | --------------- | ---------------------------------------------- |
-| `.txt` / `.md`                      | 原生轻量解析          | 无需外部服务，UTF-8/GBK 自适应                           |
-| `.pdf`                              | `PDF_PARSER` 决定 | `pdfplumber`（基线，默认）或 `mineru`（结构化：标题/段落/表格/页码） |
-| `.doc` / `.docx`                    | 本地 MinerU       | 结构化解析，含标题层级与表格                                 |
-| `.ppt` / `.pptx` / `.xls` / `.xlsx` | 本地 MinerU       | 由 MinerU（DocVortex）提供解析能力                      |
-| `.png` / `.jpg` / `.jpeg`           | 本地 MinerU       | 图片 OCR 识别文字后入库                                 |
+| 格式 | 解析方式 |
+|---|---|
+| TXT、Markdown | 内置文本解析 |
+| PDF | pdfplumber 或本地 MinerU；MinerU 不可用或无文本时回退到 pdfplumber |
+| DOC、DOCX、PPT、PPTX、XLS、XLSX、PNG、JPG | 本地 MinerU |
 
-- 白名单由 `.env` 的 `ALLOWED_EXTENSIONS` 控制；
-- **降级保护**：`PDF_PARSER=mineru` 时若 MinerU 不可用**或解析成功但没提取到文本**（如脑图等图形化 PDF 被整页识别成一张图），PDF 会自动回退 `pdfplumber` 并在 `documents.parse_error` 记录降级原因（上传不会失败）；响应里的 `parser_name` / `degraded` 字段会告知实际使用的解析器；
-- 使用 MinerU 解析的格式（docx/图片等）需要先启动 MinerU 服务；
-- 上传接口已改为异步入队；可通过 `/api/v1/documents/{file_id}/status` 查询处理进度。
+上传扩展名白名单和模型、服务配置见 `.env.example`。容器部署、镜像和模型挂载说明见 [`deploy/README.md`](deploy/README.md)；当前架构与关键设计见 [`docs/TECH_DESIGN.md`](docs/TECH_DESIGN.md)。
 
-## 环境注意
+## 目录
 
-- **Python 环境**：使用 conda 环境 **`rag_kb`**（含 GPU torch）；
-- **GPU**：本机 RTX 5080（16GB），`EMBEDDING_DEVICE=cuda`；无独显改 `cpu`；
-- **国内网络**：模型走Hugging Face（国内镜像`hf-mirror.com`），也可以选择国内魔搭社区ModelScope（`modelscope.cn`）；GitHub / docker.io / 官方 PyPI(包仓库) 需要本地代理；清华 PyPI、DaoCloud、（阿里 `mirrors.aliyun.com` 实测极慢，勿用于构建）；
-- **Docker**：`deploy/docker-compose.yml` 是唯一入口——一键起全栈（模型直接挂载宿主本地目录，离线可用；模型路径由 `OLLAMA_MODELS_HOST_PATH` / `EMBEDDING_MODEL_HOST_PATH` 指定），也可用 `up -d milvus` / `up -d mineru` 只起依赖服务给宿主 uvicorn 用（旧的 Milvus/MinerU 独立 compose 已删除）。Docker Hub 官方源需要代理，Dockerfile 已使用 DaoCloud 基础镜像和清华 PyPI 直连；容器时区统一为 `Asia/Shanghai`（`backend` 与 `mysql` 的 `TZ` 成对设置，只改一边会让同一行内 `created_at` 与 `updated_at` 差 8 小时），可用 `deploy/.env` 覆盖；
-- **容器内的推理设备**：Embedding **走 GPU**（compose 默认 `EMBEDDING_DEVICE=cuda`，backend 已预留 GPU 设备；镜像内 torch 是 `2.14.0+cu130`，实测支持 RTX 5080/sm_120，无需换 torch 底座）；Ollama、MinerU、backend 三个容器共用这张卡（约 5.6 + 2.2 + MinerU 数 GB），显存不足时按 `deploy/README.md` 的优先级让出（先关 Ollama 的 GPU 预留，最后才把 Embedding 退回 CPU）。
+- `app/`：FastAPI 应用、数据模型、解析、分块、检索和任务处理。
+- `app/static/`：由前端构建生成并随项目部署的静态文件。
+- `frontend/`：前端源码。
+- `deploy/`：Docker Compose 与部署指南。
+- `docs/TECH_DESIGN.md`：系统架构与关键设计说明。
+- `scripts/`：数据库校验、Milvus 检查和向量重建工具。
+- `sql/schema.sql`：数据库表结构。
+- `tests/`：解析与稳定性回归测试。
