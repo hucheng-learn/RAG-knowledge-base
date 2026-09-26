@@ -1,9 +1,9 @@
 # 企业知识库 RAG 全栈本地部署。
 # 模型全部使用宿主机已备好的本地权重：不联网下载、不需要 ollama pull。
-#   Ollama 模型仓库：<工作区>/models   —— 内含 registry.ollama.ai/library/qwen3/{8b,latest} 与 blobs
-#   bge-m3 权重：    <工作区>/bge-m3   —— sentence-transformers 目录（1024 维）
-# 两个路径默认按「本文件所在目录」上溯两级解析（deploy → RAG-project → 工作区根目录）；
-# 目录结构不同时用环境变量覆盖（建议写绝对路径）：
+#   Ollama 模型仓库：<项目根目录>/models —— 内含 manifests/ 和 blobs/
+#   bge-m3 权重：    <项目根目录>/bge-m3 —— sentence-transformers 模型目录（1024 维）
+# Compose 的 bind mount 源路径相对本文件所在的 deploy/ 目录解析，../models 和 ../bge-m3
+# 正好指向项目根目录。模型可以放在别处，再通过 deploy/.env 中的环境变量指定绝对路径：
 #   OLLAMA_MODELS_HOST_PATH / EMBEDDING_MODEL_HOST_PATH
 # 首次构建 + 启动：
 #   docker compose -f deploy/docker-compose.yml up -d --build
@@ -108,7 +108,7 @@ services:
     volumes:
       # 命名卷只放密钥/历史等可写状态；模型目录单独挂宿主本地仓库（qwen3:8b 已在其中）
       - ollama_data:/root/.ollama
-      - ${OLLAMA_MODELS_HOST_PATH:-../../models}:/root/.ollama/models
+      - ${OLLAMA_MODELS_HOST_PATH:-../models}:/root/.ollama/models
     healthcheck:
       # 模型能真的列出来才算健康——顺带验证宿主模型目录挂载正确
       test: ["CMD-SHELL", "ollama show ${LLM_MODEL:-qwen3:8b} >/dev/null 2>&1"]
@@ -193,8 +193,8 @@ services:
     volumes:
       - ../uploads:/app/uploads
       - ../logs:/app/logs
-      # bge-m3 权重来自宿主本地目录（默认工作区根下 bge-m3），只读挂载
-      - ${EMBEDDING_MODEL_HOST_PATH:-../../bge-m3}:/models/bge-m3:ro
+      # bge-m3 权重来自宿主本地目录（默认项目根目录下 bge-m3），只读挂载
+      - ${EMBEDDING_MODEL_HOST_PATH:-../bge-m3}:/models/bge-m3:ro
     # Embedding 走 GPU：镜像内 torch 是 cu130 构建（实测支持 RTX 5080 / sm_120），
     # 不预留设备时 torch.cuda.is_available() 为 False，会在 CPU 上跑（慢 10 倍以上）。
     # 显存紧张时把 deploy/.env 里 EMBEDDING_DEVICE 设为 cpu 即可退回 CPU。
