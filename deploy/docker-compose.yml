@@ -154,7 +154,7 @@ services:
               capabilities: [gpu]
 
   backend:
-    image: rag-backend:rag-local
+    image: rag-backend:rag-0.1.0
     build:
       context: ..
       dockerfile: Dockerfile

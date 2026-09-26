@@ -59,7 +59,7 @@ docker compose -f deploy/docker-compose.yml up -d mineru    # 仅 PDF_PARSER=min
 docker compose -f deploy/docker-compose.yml ps
 ```
 
-Compose 中的运行镜像统一用 `rag-<服务>:rag-<上游版本>`；后端构建为 `rag-backend:rag-local`。例如 `mysql:8.0` 会增加别名 `rag-mysql:rag-8.0`，`mineru:4` 会增加别名 `rag-mineru:rag-4`。原始标签仍可供其他项目使用。第三方服务设置了 `pull_policy: never`，缺少项目标签时先执行上面的 `docker tag`，避免 Docker 把 `rag-*` 误当作远程仓库拉取。镜像标签与容器名、数据卷相互独立；重新打标签不会迁移或清空数据。
+Compose 中的运行镜像统一用 `rag-<服务>:rag-<上游版本>`；后端按 `.env` 的应用版本构建为 `rag-backend:rag-0.1.0`。例如 `mysql:8.0` 会增加别名 `rag-mysql:rag-8.0`，`mineru:4` 会增加别名 `rag-mineru:rag-4`。第三方服务设置了 `pull_policy: never`，缺少项目标签时先执行上面的 `docker tag`，避免 Docker 把 `rag-*` 误当作远程仓库拉取。镜像标签与容器名、数据卷相互独立；重新打标签不会迁移或清空数据。
 
 启动后：
 
